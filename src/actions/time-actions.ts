@@ -18,8 +18,8 @@ export type ActionResult<T = unknown> =
  * Règle impérative : Horodatage système strict (new Date()) appliqué côté serveur.
  * Aucune heure injectée par le client n'est acceptée.
  */
-export async function clockIn(input: {
-  userId: string;
+export async function clockIn(input?: {
+  userId?: string;
   shiftId?: string;
 }): Promise<ActionResult> {
   try {
@@ -28,8 +28,11 @@ export async function clockIn(input: {
       return { success: false, error: "UNAUTHORIZED", code: "UNAUTHORIZED" };
     }
 
+    // Règle de sécurité stricte : l'identité du salarié est déduite de la session serveur
+    const targetUserId = input?.userId ?? user.id;
+
     // Un salarié ne peut pointer que pour lui-même
-    if (user.role === "SALARIE" && user.id !== input.userId) {
+    if (user.role === "SALARIE" && targetUserId !== user.id) {
       return { success: false, error: "Accès refusé", code: "FORBIDDEN" };
     }
 
@@ -39,8 +42,8 @@ export async function clockIn(input: {
     const result = await prisma.$transaction(async (tx) => {
       const entry = await tx.timeEntry.create({
         data: {
-          userId: input.userId,
-          shiftId: input.shiftId ?? null,
+          userId: targetUserId,
+          shiftId: input?.shiftId ?? null,
           clockInTime: serverClockInTime,
           qualification: "CONFORME",
         },
