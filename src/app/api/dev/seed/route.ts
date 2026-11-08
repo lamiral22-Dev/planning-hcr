@@ -201,7 +201,51 @@ export async function GET() {
       },
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Erreur interne";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const errorDetails = err instanceof Error ? err.stack || err.message : String(err);
+    console.error("❌ Erreur lors de l'initialisation de la base (/api/dev/seed) :", errorDetails);
+
+    const isDbUnreachable =
+      errorDetails.includes("Can't reach database") ||
+      errorDetails.includes("P1001") ||
+      errorDetails.includes("Environment variable not found: DATABASE_URL") ||
+      errorDetails.includes("does not exist in the current database");
+
+    const userMessage = isDbUnreachable
+      ? "Impossible de contacter la base de données ou tables manquantes. Assurez-vous que DATABASE_URL est configurée et que le schéma Prisma a été déployé."
+      : "Une erreur est survenue lors du chargement des données de test.";
+
+    const errorHtml = `
+      <!DOCTYPE html>
+      <html lang="fr">
+        <head>
+          <meta charset="utf-8">
+          <title>Erreur d'initialisation - HCR</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #fef2f2; }
+            .card { background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); text-align: center; max-width: 500px; border: 1px solid #fecaca; }
+            h1 { color: #dc2626; font-size: 1.4rem; margin-bottom: 1rem; }
+            p { color: #4b5563; font-size: 0.95rem; line-height: 1.5; }
+            pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.75rem; font-size: 0.8rem; text-align: left; overflow-x: auto; color: #b91c1c; }
+            a { display: inline-block; margin-top: 1.5rem; padding: 0.75rem 1.5rem; background: #dc2626; color: white; text-decoration: none; border-radius: 0.5rem; font-weight: 600; }
+            a:hover { background: #b91c1c; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h1>❌ Erreur d'initialisation de la base</h1>
+            <p>${userMessage}</p>
+            <pre>${err instanceof Error ? err.message : String(err)}</pre>
+            <a href="/api/dev/seed">Réessayer l'initialisation</a>
+          </div>
+        </body>
+      </html>
+    `;
+
+    return new NextResponse(errorHtml, {
+      status: 500,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+      },
+    });
   }
 }
