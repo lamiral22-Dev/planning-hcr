@@ -1,4 +1,4 @@
-import { headers } from "next/headers";
+import { headers, cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import type { Role } from "@prisma/client";
 
@@ -12,14 +12,20 @@ export interface SessionUser {
 
 /**
  * Helper d'authentification côté serveur
- * Extrait l'utilisateur courant et son rôle directement depuis la session / headers serveur,
+ * Extrait l'utilisateur courant et son rôle directement depuis la session (cookie HTTP ou headers serveur),
  * garantissant qu'aucun contexte arbitraire ne puisse être injecté par le client HTTP.
  */
 export async function getCurrentUser(): Promise<SessionUser | null> {
   let userId: string | null = null;
   try {
-    const headersList = await headers();
-    userId = headersList.get("x-user-id");
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get("session_user_id");
+    if (sessionCookie?.value) {
+      userId = sessionCookie.value;
+    } else {
+      const headersList = await headers();
+      userId = headersList.get("x-user-id");
+    }
   } catch {
     // Dans les contextes hors requête HTTP (tests Vitest, scripts internes)
     userId = null;
