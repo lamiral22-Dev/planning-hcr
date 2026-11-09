@@ -1,6 +1,13 @@
 import { PrismaClient } from "@prisma/client";
+import { scryptSync, randomBytes } from "crypto";
 
 const prisma = new PrismaClient();
+
+function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString("hex");
+  const derivedKey = scryptSync(password, salt, 64).toString("hex");
+  return `${salt}:${derivedKey}`;
+}
 
 async function main() {
   console.log("🌱 Début du seed de test...");
@@ -13,13 +20,15 @@ async function main() {
   await prisma.masterTemplate.deleteMany();
   await prisma.user.deleteMany();
 
+  const defaultPasswordHash = hashPassword("password123");
+
   // 1. Création des utilisateurs
   // Manager
   const manager = await prisma.user.create({
     data: {
       matricule: "MGR-001",
       email: "manager@resto.fr",
-      passwordHash: "hashed_pwd_mgr",
+      passwordHash: defaultPasswordHash,
       firstName: "Alexandre",
       lastName: "Dupuis",
       role: "MANAGER",
@@ -32,7 +41,7 @@ async function main() {
     data: {
       matricule: "SAL-001",
       email: "thomas@resto.fr",
-      passwordHash: "hashed_pwd_thomas",
+      passwordHash: defaultPasswordHash,
       firstName: "Thomas",
       lastName: "Rousseau",
       role: "SALARIE",
@@ -45,7 +54,7 @@ async function main() {
     data: {
       matricule: "SAL-002",
       email: "sarah@resto.fr",
-      passwordHash: "hashed_pwd_sarah",
+      passwordHash: defaultPasswordHash,
       firstName: "Sarah",
       lastName: "Benali",
       role: "SALARIE",

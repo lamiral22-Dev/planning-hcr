@@ -1,8 +1,20 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { isDemoModeEnabled } from "@/lib/demo-mode";
+import { hashPassword } from "@/lib/password";
 
 export async function GET() {
+  // Garde-fou strict en production : si le mode démo n'est pas activé, interdire l'accès immédiatement
+  if (!isDemoModeEnabled()) {
+    return NextResponse.json(
+      { error: "Forbidden: Demo mode is disabled" },
+      { status: 403 }
+    );
+  }
+
   try {
+    const defaultPasswordHash = hashPassword("password123");
+
     // 1. Nettoyage ordonné des données existantes
     await prisma.auditLog.deleteMany();
     await prisma.shiftSwap.deleteMany();
@@ -16,7 +28,7 @@ export async function GET() {
       data: {
         matricule: "MGR-001",
         email: "manager@resto.fr",
-        passwordHash: "demo_hash_mgr",
+        passwordHash: defaultPasswordHash,
         firstName: "Alexandre",
         lastName: "Dupuis",
         role: "MANAGER",
@@ -28,7 +40,7 @@ export async function GET() {
       data: {
         matricule: "SAL-001",
         email: "thomas@resto.fr",
-        passwordHash: "demo_hash_thomas",
+        passwordHash: defaultPasswordHash,
         firstName: "Thomas",
         lastName: "Rousseau",
         role: "SALARIE",
@@ -40,7 +52,7 @@ export async function GET() {
       data: {
         matricule: "SAL-002",
         email: "sarah@resto.fr",
-        passwordHash: "demo_hash_sarah",
+        passwordHash: defaultPasswordHash,
         firstName: "Sarah",
         lastName: "Benali",
         role: "SALARIE",
