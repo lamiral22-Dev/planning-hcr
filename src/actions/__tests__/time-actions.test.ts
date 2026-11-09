@@ -4,6 +4,7 @@ import {
   clockIn,
   clockOut,
   recordOperationalStatus,
+  recordMissedClockIn,
   arbitrateTimeEntry,
 } from "@/actions/time-actions";
 import { prisma } from "@/lib/prisma";
@@ -13,6 +14,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     timeEntry: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
     },
@@ -172,6 +174,132 @@ describe("time-actions.ts", () => {
           }),
         })
       );
+    });
+  });
+
+  describe("recordMissedClockIn", () => {
+    it("enregistre un oubli de pointage avec heures effectives conformes et audit log", async () => {
+      vi.spyOn(auth, "requireUserWithRoles").mockResolvedValue({
+        id: "mgr-1",
+        email: "mgr@test.com",
+        role: "MANAGER",
+        firstName: "Alice",
+        lastName: "Directrice",
+      });
+
+      const shiftStart = new Date("2025-01-02T12:00:00Z");
+      const shiftEnd = new Date("2025-01-02T15:00:00Z");
+
+      vi.mocked(prisma.shift.findUnique).mockResolvedValue({
+        id: "shift-missed-1",
+        userId: "sal-1",
+        startTime: shiftStart,
+        endTime: shiftEnd,
+      } as any);
+
+      vi.mocked(prisma.timeEntry.findFirst).mockResolvedValue(null);
+      vi.mocked(prisma.timeEntry.create as any).mockImplementation(async ({ data }: any) => {
+        return { id: "entry-missed-1", ...data };
+      });
+
+      const res = await recordMissedClockIn({
+        shiftId: "shift-missed-1",
+        actualStartTime: shiftStart,
+        actualEndTime: shiftEnd,
+        reason: "Oubli de badgeage en début et fin de service",
+      });
+
+      expect(res.success).toBe(true);
+      if (res.success) {
+        const created = res.data as any;
+        expect(created.qualification).toBe("CONFORME");
+        expect(created.clockInTime).toEqual(shiftStart);
+        expect(created.rawClockOutTime).toEqual(shiftEnd);
+        expect(created.discrepancyReason).toBe("Oubli de badgeage en début et fin de service");
+      }
+
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: "MISSED_CLOCK_IN_RECORDED",
+          }),
+        })
+      );
+    });
+
+    it("qualifie en HEURES_MODIFIEES et met à jour si un TimeEntry existait déjà (anti-collision)", async () => {
+      vi.spyOn(auth, "requireUserWithRoles").mockResolvedValue({
+        id: "mgr-1",
+        email: "mgr@test.com",
+        role: "MANAGER",
+        firstName: "Alice",
+        lastName: "Directrice",
+      });
+
+      const shiftStart = new Date("2025-01-02T12:00:00Z");
+      const shiftEnd = new Date("2025-01-02T15:00:00Z");
+
+      vi.mocked(prisma.shift.findUnique).mockResolvedValue({
+        id: "shift-missed-2",
+        userId: "sal-1",
+        startTime: shiftStart,
+        endTime: shiftEnd,
+      } as any);
+
+      const existingEntry = {
+        id: "existing-entry-1",
+        shiftId: "shift-missed-2",
+        userId: "sal-1",
+        clockInTime: shiftStart,
+        rawClockOutTime: null,
+      };
+      vi.mocked(prisma.timeEntry.findFirst).mockResolvedValue(existingEntry as any);
+      vi.mocked(prisma.timeEntry.update as any).mockImplementation(async ({ data }: any) => {
+        return { ...existingEntry, ...data };
+      });
+
+      const actualEndDifferent = new Date("2025-01-02T16:00:00Z");
+
+      const res = await recordMissedClockIn({
+        shiftId: "shift-missed-2",
+        actualStartTime: shiftStart,
+        actualEndTime: actualEndDifferent,
+        reason: "Prolongation d'une heure convenue",
+      });
+
+      expect(res.success).toBe(true);
+      if (res.success) {
+        const updated = res.data as any;
+        expect(updated.qualification).toBe("HEURES_MODIFIEES");
+        expect(updated.correctedClockOutTime).toBeDefined();
+      }
+
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: "MISSED_CLOCK_IN_UPDATED",
+          }),
+        })
+      );
+    });
+
+    it("échoue si le motif de régularisation est vide", async () => {
+      vi.spyOn(auth, "requireUserWithRoles").mockResolvedValue({
+        id: "mgr-1",
+        email: "mgr@test.com",
+        role: "MANAGER",
+        firstName: "Alice",
+        lastName: "Directrice",
+      });
+
+      const res = await recordMissedClockIn({
+        shiftId: "shift-missed-3",
+        actualStartTime: new Date(),
+        actualEndTime: new Date(),
+        reason: "",
+      });
+
+      expect(res.success).toBe(false);
     });
   });
 

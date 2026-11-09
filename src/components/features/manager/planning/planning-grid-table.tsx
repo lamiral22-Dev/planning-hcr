@@ -55,36 +55,36 @@ export function PlanningGridTable({
   };
 
   return (
-    <div className="w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm print:border-none print:shadow-none">
-      <table className="w-full text-left border-collapse min-w-[1200px] print:min-w-full">
+    <div className="w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm print:border-none print:shadow-none print:overflow-visible print:max-w-full">
+      <table className="w-full text-left border-collapse min-w-[1200px] print:min-w-0 print:w-full print:text-[10px]">
         <thead>
-          <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-700">
-            <th className="p-3 w-48 font-bold border-r border-slate-200 sticky left-0 bg-slate-50 z-10 print:static">
+          <tr className="bg-slate-50 border-b border-slate-200 text-xs print:text-[10px] text-slate-700">
+            <th className="p-3 print:p-1 w-48 print:w-auto font-bold border-r border-slate-200 sticky left-0 bg-slate-50 z-10 print:static">
               Collaborateur
             </th>
             {days.map((day, idx) => (
               <th
                 key={idx}
-                className={`p-2 text-center border-r border-slate-200 font-semibold min-w-[75px] ${
+                className={`p-2 print:p-1 text-center border-r border-slate-200 font-semibold min-w-[75px] print:min-w-0 ${
                   idx === 6 || idx === 13 ? "bg-slate-100" : ""
                 }`}
               >
                 <div className="capitalize">{format(day, "EEE", { locale: fr })}</div>
-                <div className="text-slate-500 font-normal">{format(day, "dd/MM")}</div>
+                <div className="text-slate-500 font-normal print:text-[9px]">{format(day, "dd/MM")}</div>
               </th>
             ))}
-            <th className="p-3 text-center font-bold min-w-[80px]">Total 15j</th>
+            <th className="p-3 print:p-1 text-center font-bold min-w-[80px] print:min-w-0">Total 15j</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-200 text-xs">
+        <tbody className="divide-y divide-slate-200 text-xs print:text-[10px]">
           {employees.map((emp) => {
             const stats = getEmployeeStats(emp.id);
             return (
-              <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
+              <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors print:break-inside-avoid">
                 {/* Nom & Métier */}
-                <td className="p-3 font-medium text-slate-900 border-r border-slate-200 sticky left-0 bg-white z-10 print:static">
+                <td className="p-3 print:p-1 font-medium text-slate-900 border-r border-slate-200 sticky left-0 bg-white z-10 print:static">
                   <div className="font-bold">{emp.name}</div>
-                  <div className="text-[11px] text-slate-500">{emp.role}</div>
+                  <div className="text-[11px] print:text-[9px] text-slate-500">{emp.role}</div>
                 </td>
 
                 {/* 14 Colonnes de Jours */}
@@ -99,12 +99,12 @@ export function PlanningGridTable({
                   return (
                     <td
                       key={dIdx}
-                      className={`p-1.5 align-top border-r border-slate-200 h-20 ${
+                      className={`p-1.5 print:p-0.5 align-top border-r border-slate-200 h-20 print:h-auto ${
                         dIdx === 6 || dIdx === 13 ? "bg-slate-50/50" : ""
                       }`}
                     >
                       {dayShifts.length > 0 ? (
-                        <div className="space-y-1">
+                        <div className="space-y-1 print:space-y-0.5">
                           {dayShifts.map((shift) => {
                             const startStr = format(new Date(shift.startTime), "HH:mm");
                             const endStr = format(new Date(shift.endTime), "HH:mm");
@@ -112,9 +112,9 @@ export function PlanningGridTable({
                               <button
                                 key={shift.id}
                                 onClick={() => onSelectShift?.(shift)}
-                                className="w-full text-left p-1 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors"
+                                className="w-full text-left p-1 print:p-0.5 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors print:bg-slate-50 print:border-slate-300"
                               >
-                                <div className="font-semibold text-blue-900">
+                                <div className="font-semibold text-blue-900 print:text-[9px]">
                                   {startStr} - {endStr}
                                 </div>
                                 <ManagerShiftBadge
@@ -141,12 +141,12 @@ export function PlanningGridTable({
                 })}
 
                 {/* Total Heures */}
-                <td className="p-3 text-center align-middle font-bold">
+                <td className="p-3 print:p-1 text-center align-middle font-bold">
                   <span className={stats.isOver48h ? "text-rose-600" : "text-slate-800"}>
                     {stats.totalHours}h
                   </span>
                   {stats.isOver48h && (
-                    <div className="text-[10px] text-rose-600 font-semibold">
+                    <div className="text-[10px] print:text-[8px] text-rose-600 font-semibold">
                       ⚠️ &gt; 48h/sem.
                     </div>
                   )}

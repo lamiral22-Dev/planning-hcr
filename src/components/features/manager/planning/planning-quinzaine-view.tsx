@@ -92,11 +92,35 @@ export function PlanningQuinzaineView({
         @media print {
           @page {
             size: landscape;
-            margin: 1cm;
+            margin: 8mm;
           }
-          body {
+          html, body {
             background: white !important;
             color: black !important;
+            width: 100% !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          * {
+            overflow: visible !important;
+            box-shadow: none !important;
+          }
+          .overflow-x-auto,
+          main,
+          div {
+            overflow: visible !important;
+            max-width: 100% !important;
+          }
+          header,
+          nav,
+          .print\\:hidden,
+          button {
+            display: none !important;
+          }
+          tr {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
           }
         }
       `}</style>

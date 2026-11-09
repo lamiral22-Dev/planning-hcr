@@ -22,7 +22,7 @@ export async function quickLoginByEmail(email: string) {
   });
 
   if (user.role === "MANAGER" || user.role === "SUPER_ADMIN") {
-    redirect("/api/manager/export-paie");
+    redirect("/manager/planning");
   } else {
     redirect("/salarie/planning");
   }
