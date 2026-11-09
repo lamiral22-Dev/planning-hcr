@@ -139,6 +139,197 @@ export async function createShift(input: ShiftInput): Promise<ActionResult> {
 }
 
 /**
+ * Instanciation de la quinzaine à partir de la grille type (MasterTemplate).
+ * RBAC : MANAGER ou SUPER_ADMIN.
+ * Pour chaque modèle de template actif, crée les shifts correspondants
+ * pour les salariés éligibles sur la période de 14 jours débutant à startDate.
+ */
+export async function applyMasterTemplate(startDate: Date): Promise<ActionResult> {
+  try {
+    const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
+
+    // Récupérer les templates actifs
+    const templates = await prisma.masterTemplate.findMany({
+      where: { isActive: true },
+      orderBy: [{ weekNumber: "asc" }, { dayOfWeek: "asc" }],
+    });
+
+    if (templates.length === 0) {
+      return {
+        success: false,
+        error: "Aucun planning type actif configuré.",
+        code: "NO_ACTIVE_TEMPLATES",
+      };
+    }
+
+    // Récupérer les utilisateurs salariés ciblés
+    const employees = await prisma.user.findMany({
+      where: { role: "SALARIE" },
+      select: { id: true, role: true },
+    });
+
+    if (employees.length === 0) {
+      return {
+        success: false,
+        error: "Aucun salarié disponible pour appliquer le planning type.",
+        code: "NO_EMPLOYEES_FOUND",
+      };
+    }
+
+    const createdShifts: ShiftInput[] = [];
+    const baseDate = new Date(startDate);
+    baseDate.setHours(0, 0, 0, 0);
+
+    for (const template of templates) {
+      // Calcul du jour cible (semaine 1 = offset 0 à 6 jours, semaine 2 = offset 7 à 13 jours)
+      const weekOffset = (template.weekNumber - 1) * 7;
+      // dayOfWeek : 1 (Lundi) -> 7 (Dimanche) => offset = dayOfWeek - 1
+      const dayOffset = weekOffset + (template.dayOfWeek - 1);
+
+      const targetDay = new Date(baseDate);
+      targetDay.setDate(targetDay.getDate() + dayOffset);
+
+      const [startH, startM] = template.startTime.split(":").map(Number);
+      const [endH, endM] = template.endTime.split(":").map(Number);
+
+      const shiftStart = new Date(targetDay);
+      shiftStart.setHours(startH, startM, 0, 0);
+
+      const shiftEnd = new Date(targetDay);
+      shiftEnd.setHours(endH, endM, 0, 0);
+      if (shiftEnd <= shiftStart) {
+        shiftEnd.setDate(shiftEnd.getDate() + 1);
+      }
+
+      // Associer au premier salarié disponible ou filtré selon roleTarget
+      const eligibleEmployee = employees.find((e) => e.role === template.roleTarget) ?? employees[0];
+
+      createdShifts.push({
+        userId: eligibleEmployee.id,
+        startTime: shiftStart,
+        endTime: shiftEnd,
+        status: "BROUILLON",
+        isLateModification: false,
+        planningVersion: 1,
+      });
+    }
+
+    const created = await prisma.$transaction(async (tx) => {
+      const results = [];
+      for (const item of createdShifts) {
+        const shift = await tx.shift.create({
+          data: {
+            userId: item.userId,
+            startTime: item.startTime,
+            endTime: item.endTime,
+            status: "BROUILLON",
+            planningVersion: 1,
+          },
+        });
+        results.push(shift);
+      }
+
+      await tx.auditLog.create({
+        data: {
+          action: "MASTER_TEMPLATE_APPLIED",
+          tableName: "Shift",
+          recordId: "BATCH",
+          userId: actor.id,
+          payloadNew: { count: results.length, startDate: baseDate.toISOString() } as unknown as Prisma.InputJsonValue,
+          timestamp: new Date(),
+        },
+      });
+
+      return results;
+    });
+
+    return { success: true, data: created };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Erreur inconnue";
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Publication de la quinzaine.
+ * Fait basculer les shifts de la période de 'BROUILLON' vers 'PUBLIE'
+ * (ou 'EN_ATTENTE_DEROGATION' si le shift est prévu dans moins de 8 jours, J < 8).
+ * RBAC : MANAGER ou SUPER_ADMIN.
+ */
+export async function publishQuinzaine(
+  startDate: Date,
+  endDate: Date
+): Promise<ActionResult> {
+  try {
+    const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
+
+    // Récupérer tous les shifts brouillons sur la plage
+    const shiftsToPublish = await prisma.shift.findMany({
+      where: {
+        startTime: { gte: startDate, lte: endDate },
+        status: "BROUILLON",
+      },
+    });
+
+    if (shiftsToPublish.length === 0) {
+      return {
+        success: true,
+        data: { publishedCount: 0, derogationCount: 0 },
+      };
+    }
+
+    const now = new Date();
+    const result = await prisma.$transaction(async (tx) => {
+      let publishedCount = 0;
+      let derogationCount = 0;
+
+      for (const shift of shiftsToPublish) {
+        const noticeCheck = checkNoticePeriod(shift.startTime, now);
+        const requiresDerogation = noticeCheck.requiresDerogation;
+        const newStatus = requiresDerogation ? "EN_ATTENTE_DEROGATION" : "PUBLIE";
+
+        if (requiresDerogation) derogationCount++;
+        else publishedCount++;
+
+        await tx.shift.update({
+          where: { id: shift.id },
+          data: {
+            status: newStatus,
+            isLateModification: requiresDerogation,
+            derogationRequestedAt: requiresDerogation ? now : null,
+            planningVersion: (shift.planningVersion || 1) + 1,
+          },
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          action: "QUINZAINE_PUBLISHED",
+          tableName: "Shift",
+          recordId: "BATCH",
+          userId: actor.id,
+          payloadNew: {
+            total: shiftsToPublish.length,
+            publishedCount,
+            derogationCount,
+            startDate: startDate.toISOString(),
+            endDate: endDate.toISOString(),
+          } as unknown as Prisma.InputJsonValue,
+          timestamp: now,
+        },
+      });
+
+      return { publishedCount, derogationCount };
+    });
+
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Erreur inconnue";
+    return { success: false, error: message };
+  }
+}
+
+/**
  * Modification d'un shift par un manager / super admin.
  * Contrôles stricts :
  *  - RBAC (MANAGER ou SUPER_ADMIN)

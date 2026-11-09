@@ -209,11 +209,14 @@ export async function recordOperationalStatus(
  * RBAC : MANAGER ou SUPER_ADMIN.
  */
 export async function arbitrateTimeEntry(
-  input: ArbitrateTimeEntryInput
+  input: Omit<ArbitrateTimeEntryInput, "managerId"> & { managerId?: string }
 ): Promise<ActionResult> {
   try {
     const manager = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
-    const validated = ArbitrateTimeEntrySchema.parse(input);
+    const validated = ArbitrateTimeEntrySchema.parse({
+      ...input,
+      managerId: manager.id,
+    });
 
     const currentEntry = await prisma.timeEntry.findUnique({
       where: { id: validated.timeEntryId },
