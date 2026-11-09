@@ -27,3 +27,9 @@ export async function quickLoginByEmail(email: string) {
     redirect("/salarie/planning");
   }
 }
+
+export async function logout() {
+  const cookieStore = await cookies();
+  cookieStore.delete("session_user_id");
+  redirect("/login");
+}
