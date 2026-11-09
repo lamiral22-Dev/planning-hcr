@@ -145,6 +145,96 @@ export const MissedClockInSchema = z.object({
   reason: z.string().min(1, "Le motif de régularisation est obligatoire"),
 });
 
+// --- USER MANAGEMENT SCHEMAS ---
+export const CreateUserSchema = z.object({
+  matricule: z
+    .string()
+    .min(2, "Le matricule doit comporter au moins 2 caractères")
+    .max(50, "Le matricule est trop long")
+    .trim(),
+  firstName: z
+    .string()
+    .min(1, "Le prénom est obligatoire")
+    .max(100)
+    .trim(),
+  lastName: z
+    .string()
+    .min(1, "Le nom est obligatoire")
+    .max(100)
+    .trim(),
+  email: z
+    .string()
+    .email("Format d'adresse email invalide")
+    .toLowerCase()
+    .trim(),
+  role: RoleEnum.default("SALARIE"),
+  contractWeeklyHours: z
+    .number({ invalid_type_error: "Le volume contractuel doit être un nombre" })
+    .min(1, "Le volume horaire hebdomadaire doit être d'au moins 1h")
+    .max(48, "Le volume horaire ne peut excéder 48h (plafond légal)")
+    .default(35.0),
+  password: z
+    .string()
+    .min(6, "Le mot de passe doit comporter au moins 6 caractères")
+    .optional(),
+  isActive: z.boolean().default(true),
+});
+
+export const UpdateUserSchema = z.object({
+  id: z.string().min(1, "L'identifiant salarié est obligatoire"),
+  matricule: z
+    .string()
+    .min(2, "Le matricule doit comporter au moins 2 caractères")
+    .max(50)
+    .trim()
+    .optional(),
+  firstName: z
+    .string()
+    .min(1, "Le prénom est obligatoire")
+    .max(100)
+    .trim()
+    .optional(),
+  lastName: z
+    .string()
+    .min(1, "Le nom est obligatoire")
+    .max(100)
+    .trim()
+    .optional(),
+  email: z
+    .string()
+    .email("Format d'adresse email invalide")
+    .toLowerCase()
+    .trim()
+    .optional(),
+  role: RoleEnum.optional(),
+  contractWeeklyHours: z
+    .number({ invalid_type_error: "Le volume contractuel doit être un nombre" })
+    .min(1, "Le volume horaire hebdomadaire doit être d'au moins 1h")
+    .max(48, "Le volume horaire ne peut excéder 48h")
+    .optional(),
+  password: z
+    .string()
+    .min(6, "Le mot de passe doit comporter au moins 6 caractères")
+    .optional()
+    .or(z.literal("")),
+  isActive: z.boolean().optional(),
+});
+
+export const ToggleUserStatusSchema = z.object({
+  userId: z.string().min(1, "L'identifiant salarié est requis"),
+  isActive: z.boolean(),
+});
+
+// --- AUDIT QUERY SCHEMA ---
+export const AuditQuerySchema = z.object({
+  userId: z.string().optional().nullable(),
+  action: z.string().optional().nullable(),
+  startDate: z.coerce.date().optional().nullable(),
+  endDate: z.coerce.date().optional().nullable(),
+  limit: z.number().int().min(1).max(500).default(100).optional(),
+  offset: z.number().int().min(0).default(0).optional(),
+});
+
 // Types exportés
 export type ShiftInput = z.infer<typeof ShiftSchema>;
 export type SwapRequestInput = z.infer<typeof SwapRequestSchema>;
@@ -152,3 +242,7 @@ export type ArbitrateTimeEntryInput = z.infer<typeof ArbitrateTimeEntrySchema>;
 export type CompanySettingsInput = z.infer<typeof CompanySettingsSchema>;
 export type MasterTemplateInput = z.infer<typeof MasterTemplateSchema>;
 export type MissedClockInInput = z.infer<typeof MissedClockInSchema>;
+export type CreateUserInput = z.infer<typeof CreateUserSchema>;
+export type UpdateUserInput = z.infer<typeof UpdateUserSchema>;
+export type ToggleUserStatusInput = z.infer<typeof ToggleUserStatusSchema>;
+export type AuditQueryInput = z.input<typeof AuditQuerySchema>;

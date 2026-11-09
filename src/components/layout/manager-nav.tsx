@@ -13,6 +13,8 @@ const navItems: NavLinkItem[] = [
   { href: "/manager/planning", label: "Planning Quinzaine" },
   { href: "/manager/arbitrage", label: "Arbitrage & Bourse" },
   { href: "/manager/exports", label: "Exports Paie" },
+  { href: "/manager/equipe", label: "Équipe" },
+  { href: "/manager/audit", label: "Registre d'Audit" },
 ];
 
 export function ManagerNav() {
