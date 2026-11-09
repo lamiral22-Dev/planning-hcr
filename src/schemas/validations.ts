@@ -125,8 +125,30 @@ export const CompanySettingsSchema = z.object({
   minDailyRestHours: z.number().positive().default(11.0),
 });
 
+// --- MASTER TEMPLATE SCHEMAS ---
+export const MasterTemplateSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().min(1, "Le nom du créneau est obligatoire"),
+  weekNumber: z.number().int().min(1).max(2),
+  dayOfWeek: z.number().int().min(1).max(7),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Format heure invalide (HH:mm)"),
+  endTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Format heure invalide (HH:mm)"),
+  roleTarget: RoleEnum.default("SALARIE"),
+  isActive: z.boolean().default(true),
+});
+
+// --- MISSED CLOCK-IN SCHEMA ---
+export const MissedClockInSchema = z.object({
+  shiftId: z.string().min(1, "L'identifiant du shift est obligatoire"),
+  actualStartTime: z.coerce.date(),
+  actualEndTime: z.coerce.date(),
+  reason: z.string().min(1, "Le motif de régularisation est obligatoire"),
+});
+
 // Types exportés
 export type ShiftInput = z.infer<typeof ShiftSchema>;
 export type SwapRequestInput = z.infer<typeof SwapRequestSchema>;
 export type ArbitrateTimeEntryInput = z.infer<typeof ArbitrateTimeEntrySchema>;
 export type CompanySettingsInput = z.infer<typeof CompanySettingsSchema>;
+export type MasterTemplateInput = z.infer<typeof MasterTemplateSchema>;
+export type MissedClockInInput = z.infer<typeof MissedClockInSchema>;

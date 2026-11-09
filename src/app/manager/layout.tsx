@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { logout } from "@/actions/auth-actions";
+import { ManagerNav } from "@/components/layout/manager-nav";
 
 export const metadata = {
   title: "Espace Manager - Planning & Pointage HCR",
@@ -36,27 +37,8 @@ export default async function ManagerLayout({
                 </span>
               </Link>
 
-              {/* 3 Onglets Principaux */}
-              <nav className="flex items-center space-x-1" aria-label="Navigation principale manager">
-                <Link
-                  href="/manager/planning"
-                  className="px-3.5 py-2 rounded-md text-sm font-medium text-slate-700 hover:text-blue-700 hover:bg-slate-100 transition-colors"
-                >
-                  Planning Quinzaine
-                </Link>
-                <Link
-                  href="/manager/arbitrage"
-                  className="px-3.5 py-2 rounded-md text-sm font-medium text-slate-700 hover:text-blue-700 hover:bg-slate-100 transition-colors"
-                >
-                  Arbitrage & Bourse
-                </Link>
-                <Link
-                  href="/manager/exports"
-                  className="px-3.5 py-2 rounded-md text-sm font-medium text-slate-700 hover:text-blue-700 hover:bg-slate-100 transition-colors"
-                >
-                  Exports Paie
-                </Link>
-              </nav>
+              {/* 3 Onglets Principaux avec indicateur actif */}
+              <ManagerNav />
             </div>
 
             {/* Profil et Déconnexion */}

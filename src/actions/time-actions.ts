@@ -5,6 +5,8 @@ import { getCurrentUser, requireUserWithRoles } from "@/lib/auth";
 import {
   ArbitrateTimeEntrySchema,
   type ArbitrateTimeEntryInput,
+  MissedClockInSchema,
+  type MissedClockInInput,
 } from "@/schemas/validations";
 import { roundClockOutTime } from "@/lib/hcr-rules";
 import type { QualificationStatus, Prisma } from "@prisma/client";
@@ -185,6 +187,111 @@ export async function recordOperationalStatus(
           tableName: "TimeEntry",
           recordId: entry.id,
           userId: manager.id,
+          payloadNew: entry as unknown as Prisma.InputJsonValue,
+          timestamp,
+        },
+      });
+
+      return entry;
+    });
+
+    return { success: true, data: result };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Erreur inconnue";
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Régularisation d'un oubli de pointage avec saisie des heures effectives et motif obligatoire.
+ * Règles impératives :
+ *  - RBAC : MANAGER ou SUPER_ADMIN.
+ *  - Anti-collision : Vérifie si un TimeEntry existe déjà pour ce shiftId afin d'éviter les erreurs de contrainte.
+ *  - Si un pointage existe déjà, met à jour les champs de correction et de motif.
+ *  - Arrondi automatique au quart d'heure sur l'heure de fin réelle.
+ *  - Qualification : CONFORME si identique aux heures planifiées, sinon HEURES_MODIFIEES.
+ *  - Enregistrement dans une transaction atomique avec AuditLog.
+ */
+export async function recordMissedClockIn(
+  input: MissedClockInInput
+): Promise<ActionResult> {
+  try {
+    const manager = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
+    const validated = MissedClockInSchema.parse(input);
+
+    const shift = await prisma.shift.findUnique({
+      where: { id: validated.shiftId },
+    });
+
+    if (!shift) {
+      return { success: false, error: "Shift introuvable", code: "NOT_FOUND" };
+    }
+
+    const roundedClockOut = roundClockOutTime(validated.actualEndTime, 15, "nearest");
+
+    const isConforme =
+      validated.actualStartTime.getTime() === shift.startTime.getTime() &&
+      validated.actualEndTime.getTime() === shift.endTime.getTime();
+
+    const qualification: QualificationStatus = isConforme
+      ? "CONFORME"
+      : "HEURES_MODIFIEES";
+
+    const timestamp = new Date();
+
+    const result = await prisma.$transaction(async (tx) => {
+      // Vérification anti-collision : existe-t-il déjà un TimeEntry lié à ce shift ?
+      const existingEntry = await tx.timeEntry.findFirst({
+        where: { shiftId: shift.id },
+      });
+
+      let entry;
+      let action: string;
+
+      if (existingEntry) {
+        entry = await tx.timeEntry.update({
+          where: { id: existingEntry.id },
+          data: {
+            clockInTime: existingEntry.clockInTime || validated.actualStartTime,
+            rawClockOutTime: existingEntry.rawClockOutTime || validated.actualEndTime,
+            roundedClockOutTime: existingEntry.roundedClockOutTime || roundedClockOut,
+            correctedClockInTime: validated.actualStartTime,
+            correctedClockOutTime: roundedClockOut,
+            qualification,
+            discrepancyReason: validated.reason.trim(),
+            arbitrationReason: `Régularisation oubli de pointage : ${validated.reason.trim()}`,
+            managerId: manager.id,
+            arbitratedAt: timestamp,
+          },
+        });
+        action = "MISSED_CLOCK_IN_UPDATED";
+      } else {
+        entry = await tx.timeEntry.create({
+          data: {
+            shiftId: shift.id,
+            userId: shift.userId,
+            clockInTime: validated.actualStartTime,
+            rawClockOutTime: validated.actualEndTime,
+            roundedClockOutTime: roundedClockOut,
+            correctedClockInTime: validated.actualStartTime,
+            correctedClockOutTime: roundedClockOut,
+            qualification,
+            discrepancyReason: validated.reason.trim(),
+            arbitrationReason: `Régularisation oubli de pointage : ${validated.reason.trim()}`,
+            managerId: manager.id,
+            arbitratedAt: timestamp,
+          },
+        });
+        action = "MISSED_CLOCK_IN_RECORDED";
+      }
+
+      await tx.auditLog.create({
+        data: {
+          action,
+          tableName: "TimeEntry",
+          recordId: entry.id,
+          userId: manager.id,
+          payloadOld: existingEntry as unknown as Prisma.InputJsonValue,
           payloadNew: entry as unknown as Prisma.InputJsonValue,
           timestamp,
         },

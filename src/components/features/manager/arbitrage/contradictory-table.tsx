@@ -237,7 +237,7 @@ export function ContradictoryTable({ items, onRefresh }: ContradictoryTableProps
                         onClick={() => setQuickStatusTarget(item)}
                         className="bg-amber-600 hover:bg-amber-700 text-white text-xs"
                       >
-                        Statut Rapide (0h)
+                        Imprévu / Oubli
                       </Button>
                     ) : isEditing ? (
                       <div className="flex justify-end gap-1">
@@ -283,6 +283,8 @@ export function ContradictoryTable({ items, onRefresh }: ContradictoryTableProps
           onClose={() => setQuickStatusTarget(null)}
           shiftId={quickStatusTarget.shiftId}
           employeeName={quickStatusTarget.employeeName}
+          plannedStartTime={quickStatusTarget.plannedStart}
+          plannedEndTime={quickStatusTarget.plannedEnd}
           onSuccess={onRefresh}
         />
       )}

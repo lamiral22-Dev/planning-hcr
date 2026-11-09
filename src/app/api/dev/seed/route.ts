@@ -8,6 +8,7 @@ export async function GET() {
     await prisma.shiftSwap.deleteMany();
     await prisma.timeEntry.deleteMany();
     await prisma.shift.deleteMany();
+    await prisma.masterTemplate.deleteMany();
     await prisma.user.deleteMany();
 
     // 2. Création des comptes
@@ -103,7 +104,51 @@ export async function GET() {
       },
     });
 
-    // 5. Deux pointages passés :
+    // 5. Création d'une grille complète de Planning Type (MasterTemplate)
+    // Semaine 1 et Semaine 2, du Lundi (1) au Dimanche (7)
+    // Créneaux Midi (11:30 - 15:00) et Soir (18:30 - 23:00) pour la salle et la cuisine
+    const masterTemplatesData = [
+      // Semaine 1
+      { weekNumber: 1, dayOfWeek: 1, startTime: "11:30", endTime: "15:00", name: "Service Midi - Salle", roleTarget: "SALARIE" as const },
+      { weekNumber: 1, dayOfWeek: 1, startTime: "18:30", endTime: "23:00", name: "Service Soir - Cuisine", roleTarget: "SALARIE" as const },
+      { weekNumber: 1, dayOfWeek: 2, startTime: "11:30", endTime: "15:00", name: "Service Midi - Salle", roleTarget: "SALARIE" as const },
+      { weekNumber: 1, dayOfWeek: 2, startTime: "18:30", endTime: "23:00", name: "Service Soir - Cuisine", roleTarget: "SALARIE" as const },
+      { weekNumber: 1, dayOfWeek: 3, startTime: "11:30", endTime: "15:00", name: "Service Midi - Salle", roleTarget: "SALARIE" as const },
+      { weekNumber: 1, dayOfWeek: 3, startTime: "18:30", endTime: "23:00", name: "Service Soir - Cuisine", roleTarget: "SALARIE" as const },
+      { weekNumber: 1, dayOfWeek: 4, startTime: "11:30", endTime: "15:00", name: "Service Midi - Salle", roleTarget: "SALARIE" as const },
+      { weekNumber: 1, dayOfWeek: 4, startTime: "18:30", endTime: "23:00", name: "Service Soir - Cuisine", roleTarget: "SALARIE" as const },
+      { weekNumber: 1, dayOfWeek: 5, startTime: "11:30", endTime: "15:00", name: "Service Midi - Salle", roleTarget: "SALARIE" as const },
+      { weekNumber: 1, dayOfWeek: 5, startTime: "18:30", endTime: "23:00", name: "Service Soir - Cuisine", roleTarget: "SALARIE" as const },
+      { weekNumber: 1, dayOfWeek: 6, startTime: "11:30", endTime: "15:00", name: "Service Midi - Salle", roleTarget: "SALARIE" as const },
+      { weekNumber: 1, dayOfWeek: 6, startTime: "18:30", endTime: "23:30", name: "Service Soir Week-end", roleTarget: "SALARIE" as const },
+      { weekNumber: 1, dayOfWeek: 7, startTime: "11:30", endTime: "15:30", name: "Brunch Dimanche", roleTarget: "SALARIE" as const },
+
+      // Semaine 2
+      { weekNumber: 2, dayOfWeek: 1, startTime: "11:30", endTime: "15:00", name: "Service Midi - Salle", roleTarget: "SALARIE" as const },
+      { weekNumber: 2, dayOfWeek: 1, startTime: "18:30", endTime: "23:00", name: "Service Soir - Cuisine", roleTarget: "SALARIE" as const },
+      { weekNumber: 2, dayOfWeek: 2, startTime: "11:30", endTime: "15:00", name: "Service Midi - Salle", roleTarget: "SALARIE" as const },
+      { weekNumber: 2, dayOfWeek: 2, startTime: "18:30", endTime: "23:00", name: "Service Soir - Cuisine", roleTarget: "SALARIE" as const },
+      { weekNumber: 2, dayOfWeek: 3, startTime: "11:30", endTime: "15:00", name: "Service Midi - Salle", roleTarget: "SALARIE" as const },
+      { weekNumber: 2, dayOfWeek: 3, startTime: "18:30", endTime: "23:00", name: "Service Soir - Cuisine", roleTarget: "SALARIE" as const },
+      { weekNumber: 2, dayOfWeek: 4, startTime: "11:30", endTime: "15:00", name: "Service Midi - Salle", roleTarget: "SALARIE" as const },
+      { weekNumber: 2, dayOfWeek: 4, startTime: "18:30", endTime: "23:00", name: "Service Soir - Cuisine", roleTarget: "SALARIE" as const },
+      { weekNumber: 2, dayOfWeek: 5, startTime: "11:30", endTime: "15:00", name: "Service Midi - Salle", roleTarget: "SALARIE" as const },
+      { weekNumber: 2, dayOfWeek: 5, startTime: "18:30", endTime: "23:00", name: "Service Soir - Cuisine", roleTarget: "SALARIE" as const },
+      { weekNumber: 2, dayOfWeek: 6, startTime: "11:30", endTime: "15:00", name: "Service Midi - Salle", roleTarget: "SALARIE" as const },
+      { weekNumber: 2, dayOfWeek: 6, startTime: "18:30", endTime: "23:30", name: "Service Soir Week-end", roleTarget: "SALARIE" as const },
+      { weekNumber: 2, dayOfWeek: 7, startTime: "11:30", endTime: "15:30", name: "Brunch Dimanche", roleTarget: "SALARIE" as const },
+    ];
+
+    for (const item of masterTemplatesData) {
+      await prisma.masterTemplate.create({
+        data: {
+          ...item,
+          isActive: true,
+        },
+      });
+    }
+
+    // 6. Deux pointages passés :
     // A. Un conforme (il y a 7 jours, 08:00 - 16:00)
     const pastDay1 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     pastDay1.setHours(8, 0, 0, 0);
