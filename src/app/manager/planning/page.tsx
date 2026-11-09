@@ -12,8 +12,9 @@ export default async function ManagerPlanningPage() {
       firstName: true,
       lastName: true,
       role: true,
+      isActive: true,
     },
-    orderBy: { lastName: "asc" },
+    orderBy: [{ isActive: "desc" }, { lastName: "asc" }],
   });
 
   const shifts = await prisma.shift.findMany({
@@ -35,6 +36,7 @@ export default async function ManagerPlanningPage() {
     id: e.id,
     name: `${e.firstName} ${e.lastName}`,
     role: "Salarié HCR",
+    isActive: e.isActive,
   }));
 
   return (

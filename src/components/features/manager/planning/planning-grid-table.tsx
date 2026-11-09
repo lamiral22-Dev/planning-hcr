@@ -18,6 +18,7 @@ export interface PlanningEmployee {
   id: string;
   name: string;
   role: string;
+  isActive?: boolean;
 }
 
 interface PlanningGridTableProps {
@@ -79,11 +80,24 @@ export function PlanningGridTable({
         <tbody className="divide-y divide-slate-200 text-xs print:text-[10px]">
           {employees.map((emp) => {
             const stats = getEmployeeStats(emp.id);
+            const isArchived = emp.isActive === false;
             return (
-              <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors print:break-inside-avoid">
+              <tr
+                key={emp.id}
+                className={`hover:bg-slate-50/50 transition-colors print:break-inside-avoid ${
+                  isArchived ? "bg-slate-50/40 opacity-80" : ""
+                }`}
+              >
                 {/* Nom & Métier */}
                 <td className="p-3 print:p-1 font-medium text-slate-900 border-r border-slate-200 sticky left-0 bg-white z-10 print:static">
-                  <div className="font-bold">{emp.name}</div>
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <span>{emp.name}</span>
+                    {isArchived && (
+                      <span className="text-[9px] uppercase px-1 py-0.2 bg-slate-200 text-slate-600 rounded font-normal">
+                        Archivé
+                      </span>
+                    )}
+                  </div>
                   <div className="text-[11px] print:text-[9px] text-slate-500">{emp.role}</div>
                 </td>
 
@@ -127,13 +141,17 @@ export function PlanningGridTable({
                         </div>
                       ) : (
                         <div className="h-full flex items-center justify-center">
-                          <button
-                            onClick={() => onAddShift?.(emp.id, day)}
-                            className="text-slate-300 hover:text-blue-600 hover:bg-blue-50 w-full h-full rounded flex items-center justify-center font-bold text-base transition-colors print:hidden"
-                            title="Ajouter un shift"
-                          >
-                            +
-                          </button>
+                          {!isArchived ? (
+                            <button
+                              onClick={() => onAddShift?.(emp.id, day)}
+                              className="text-slate-300 hover:text-blue-600 hover:bg-blue-50 w-full h-full rounded flex items-center justify-center font-bold text-base transition-colors print:hidden"
+                              title="Ajouter un shift"
+                            >
+                              +
+                            </button>
+                          ) : (
+                            <span className="text-slate-300 text-xs print:hidden">-</span>
+                          )}
                         </div>
                       )}
                     </td>

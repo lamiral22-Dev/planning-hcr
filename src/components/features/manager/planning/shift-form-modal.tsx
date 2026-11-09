@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button";
 import { createShift, updateShift } from "@/actions/shift-actions";
 import { checkNoticePeriod } from "@/lib/hcr-rules";
 
-interface EmployeeOption {
+export interface EmployeeOption {
   id: string;
   name: string;
+  isActive?: boolean;
 }
 
 interface ShiftFormModalProps {
@@ -151,13 +152,15 @@ export function ShiftFormModal({
             <select
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               required
             >
-              {employees.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.name}
-                </option>
+              {employees
+                .filter((emp) => emp.isActive !== false || emp.id === initialData?.userId)
+                .map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name} {emp.isActive === false ? "(Archivé)" : ""}
+                  </option>
               ))}
             </select>
           </div>
