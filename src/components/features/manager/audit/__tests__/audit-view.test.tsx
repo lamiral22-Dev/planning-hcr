@@ -7,7 +7,6 @@ import type { AuditLogItem } from "@/actions/audit-actions";
 vi.mock("@/actions/audit-actions", () => ({
   getAuditLogs: vi.fn().mockResolvedValue({ success: true, data: { logs: [], totalCount: 0 } }),
   getAuditLogById: vi.fn(),
-  generateAuditCsv: vi.fn(),
 }));
 
 describe("AuditView", () => {

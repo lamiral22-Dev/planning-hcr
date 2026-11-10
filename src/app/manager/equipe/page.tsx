@@ -4,6 +4,8 @@ import { requireUserWithRoles, getCurrentUser } from "@/lib/auth";
 import { EquipeView } from "@/components/features/manager/equipe/equipe-view";
 import type { UserListItem } from "@/actions/user-actions";
 
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Gestion de l'Équipe | Planning & Pointage HCR",
 };
