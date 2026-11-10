@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 import { LoginForm } from "../login-form";
+import * as authActions from "@/actions/auth-actions";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+  }),
+}));
 
 // Mock des Server Actions
 vi.mock("@/actions/auth-actions", () => ({
@@ -55,5 +62,28 @@ describe("LoginForm", () => {
     expect(screen.getByLabelText(/Adresse email/i)).toBeDefined();
     expect(screen.getByLabelText(/Mot de passe/i)).toBeDefined();
     expect(screen.getByRole("button", { name: /^Se connecter$/i })).toBeDefined();
+  });
+
+  it("affiche l'erreur retournée par loginWithCredentials dans le bandeau d'alerte rouge sans exception", async () => {
+    vi.mocked(authActions.loginWithCredentials).mockResolvedValueOnce({
+      success: false,
+      error: "Identifiants incorrects ou compte inactif.",
+    });
+
+    render(<LoginForm isDemoMode={false} />);
+
+    const emailInput = screen.getByLabelText(/Adresse email/i);
+    const passwordInput = screen.getByLabelText(/Mot de passe/i);
+    const submitBtn = screen.getByRole("button", { name: /^Se connecter$/i });
+
+    fireEvent.change(emailInput, { target: { value: "test@resto.fr" } });
+    fireEvent.change(passwordInput, { target: { value: "wrongpass" } });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Identifiants incorrects ou compte inactif.")
+      ).toBeDefined();
+    });
   });
 });

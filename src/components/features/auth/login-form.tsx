@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { quickLoginByEmail, loginWithCredentials } from "@/actions/auth-actions";
 
 interface LoginFormProps {
@@ -8,6 +9,7 @@ interface LoginFormProps {
 }
 
 export function LoginForm({ isDemoMode }: LoginFormProps) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -31,7 +33,12 @@ export function LoginForm({ isDemoMode }: LoginFormProps) {
 
     startTransition(async () => {
       try {
-        await loginWithCredentials(formData);
+        const res = await loginWithCredentials(formData);
+        if (!res.success) {
+          setErrorMsg(res.error || "Identifiants incorrects ou compte inactif.");
+        } else if (res.redirectTo) {
+          router.push(res.redirectTo);
+        }
       } catch (err: unknown) {
         if (err instanceof Error && !err.message.includes("NEXT_REDIRECT")) {
           setErrorMsg(err.message);

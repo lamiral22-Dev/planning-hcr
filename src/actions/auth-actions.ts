@@ -40,7 +40,9 @@ export async function quickLoginByEmail(email: string) {
   }
 }
 
-export async function loginWithCredentials(formData: FormData) {
+export async function loginWithCredentials(
+  formData: FormData
+): Promise<{ success: boolean; error?: string; redirectTo?: string }> {
   const emailRaw = formData.get("email");
   const passwordRaw = formData.get("password");
 
@@ -50,7 +52,10 @@ export async function loginWithCredentials(formData: FormData) {
   });
 
   if (!validation.success) {
-    throw new Error(validation.error.issues[0]?.message || "Identifiants invalides");
+    return {
+      success: false,
+      error: "Identifiants incorrects ou compte inactif.",
+    };
   }
 
   const { email, password } = validation.data;
@@ -59,13 +64,19 @@ export async function loginWithCredentials(formData: FormData) {
     where: { email },
   });
 
-  if (!user || !user.isActive) {
-    throw new Error("Identifiants incorrects ou compte inactif");
+  if (!user || !user.isActive || !user.passwordHash) {
+    return {
+      success: false,
+      error: "Identifiants incorrects ou compte inactif.",
+    };
   }
 
   const isMatch = verifyPassword(password, user.passwordHash);
   if (!isMatch) {
-    throw new Error("Identifiants incorrects ou compte inactif");
+    return {
+      success: false,
+      error: "Identifiants incorrects ou compte inactif.",
+    };
   }
 
   const cookieStore = await cookies();
@@ -76,11 +87,15 @@ export async function loginWithCredentials(formData: FormData) {
     secure: process.env.NODE_ENV === "production",
   });
 
-  if (user.role === "MANAGER" || user.role === "SUPER_ADMIN") {
-    redirect("/manager/planning");
-  } else {
-    redirect("/salarie/planning");
-  }
+  const redirectTo =
+    user.role === "MANAGER" || user.role === "SUPER_ADMIN"
+      ? "/manager/planning"
+      : "/salarie/planning";
+
+  return {
+    success: true,
+    redirectTo,
+  };
 }
 
 export async function logout() {
