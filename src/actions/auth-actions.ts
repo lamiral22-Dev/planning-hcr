@@ -3,14 +3,26 @@
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
+import { isDemoModeEnabled } from "@/lib/demo-mode";
+import { verifyPassword } from "@/lib/password";
+import { z } from "zod";
+
+const credentialsSchema = z.object({
+  email: z.string().email("Adresse email invalide"),
+  password: z.string().min(1, "Mot de passe requis"),
+});
 
 export async function quickLoginByEmail(email: string) {
+  if (!isDemoModeEnabled()) {
+    throw new Error("FORBIDDEN: La connexion rapide en 1 clic est désactivée en environnement de production.");
+  }
+
   const user = await prisma.user.findUnique({
     where: { email },
   });
 
-  if (!user) {
-    throw new Error(`Utilisateur ${email} introuvable. Veuillez initialiser la base via /api/dev/seed.`);
+  if (!user || !user.isActive) {
+    throw new Error(`Utilisateur ${email} introuvable ou inactif.`);
   }
 
   const cookieStore = await cookies();
@@ -26,6 +38,64 @@ export async function quickLoginByEmail(email: string) {
   } else {
     redirect("/salarie/planning");
   }
+}
+
+export async function loginWithCredentials(
+  formData: FormData
+): Promise<{ success: boolean; error?: string; redirectTo?: string }> {
+  const emailRaw = formData.get("email");
+  const passwordRaw = formData.get("password");
+
+  const validation = credentialsSchema.safeParse({
+    email: typeof emailRaw === "string" ? emailRaw.trim() : "",
+    password: typeof passwordRaw === "string" ? passwordRaw : "",
+  });
+
+  if (!validation.success) {
+    return {
+      success: false,
+      error: "Identifiants incorrects ou compte inactif.",
+    };
+  }
+
+  const { email, password } = validation.data;
+
+  const user = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  if (!user || !user.isActive || !user.passwordHash) {
+    return {
+      success: false,
+      error: "Identifiants incorrects ou compte inactif.",
+    };
+  }
+
+  const isMatch = verifyPassword(password, user.passwordHash);
+  if (!isMatch) {
+    return {
+      success: false,
+      error: "Identifiants incorrects ou compte inactif.",
+    };
+  }
+
+  const cookieStore = await cookies();
+  cookieStore.set("session_user_id", user.id, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
+
+  const redirectTo =
+    user.role === "MANAGER" || user.role === "SUPER_ADMIN"
+      ? "/manager/planning"
+      : "/salarie/planning";
+
+  return {
+    success: true,
+    redirectTo,
+  };
 }
 
 export async function logout() {

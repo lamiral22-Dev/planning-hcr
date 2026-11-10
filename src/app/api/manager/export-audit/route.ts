@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { generateAuditCsv, type AuditLogItem } from "@/actions/audit-actions";
+import type { AuditLogItem } from "@/actions/audit-actions";
+import { generateAuditCsv } from "@/lib/csv-utils";
 import { APP_TIMEZONE } from "@/lib/time-utils";
 import { format } from "date-fns";
 

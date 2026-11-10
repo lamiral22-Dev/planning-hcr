@@ -4,6 +4,8 @@ import { requireUserWithRoles } from "@/lib/auth";
 import { AuditView } from "@/components/features/manager/audit/audit-view";
 import type { AuditLogItem } from "@/actions/audit-actions";
 
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Registre d'Audit Légal | Planning & Pointage HCR",
 };

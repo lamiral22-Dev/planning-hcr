@@ -5,6 +5,7 @@ import { ClockWidget } from "@/components/features/salarie/time-tracking/clock-w
 import { SalarieShiftCard } from "./salarie-shift-card";
 import { AcknowledgmentBanner } from "./acknowledgment-banner";
 import { DerogationModal } from "./derogation-modal";
+import { PwaInstallPrompt } from "@/components/features/salarie/pwa-install-prompt";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -114,6 +115,9 @@ export function SalariePlanningView({
 
   return (
     <div className="flex flex-col gap-5 p-4 max-w-lg mx-auto pb-16">
+      {/* Bannière non-intrusive d'installation PWA */}
+      <PwaInstallPrompt />
+
       {/* En-tête avec bouton PDF */}
       <div className="flex items-center justify-between">
         <div>

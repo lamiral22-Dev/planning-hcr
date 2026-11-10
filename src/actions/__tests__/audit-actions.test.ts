@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   getAuditLogs,
   getAuditLogById,
-  generateAuditCsv,
 } from "../audit-actions";
+import { generateAuditCsv } from "@/lib/csv-utils";
 import { prisma } from "@/lib/prisma";
 import * as auth from "@/lib/auth";
 
