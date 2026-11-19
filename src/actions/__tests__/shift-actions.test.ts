@@ -5,6 +5,7 @@ import {
   updateShift,
   acknowledgeShift,
   acceptDerogation,
+  deleteShift,
 } from "@/actions/shift-actions";
 import { prisma } from "@/lib/prisma";
 import * as auth from "@/lib/auth";
@@ -14,12 +15,15 @@ vi.mock("@/lib/prisma", () => ({
     shift: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      delete: vi.fn(),
     },
     auditLog: {
       create: vi.fn(),
     },
+    $queryRaw: vi.fn(),
     $transaction: vi.fn(async (cb: (tx: any) => Promise<any>) => {
       return cb(prisma);
     }),
@@ -29,6 +33,41 @@ vi.mock("@/lib/prisma", () => ({
 describe("shift-actions.ts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe("Suppression d'un shift", () => {
+    it("refuse un salarié et ne supprime rien", async () => {
+      vi.spyOn(auth, "requireUserWithRoles").mockRejectedValue(new Error("FORBIDDEN"));
+      expect((await deleteShift("shift-1")).success).toBe(false);
+      expect(prisma.shift.delete).not.toHaveBeenCalled();
+    });
+
+    it("bloque les shifts ayant des pointages ou échanges", async () => {
+      vi.spyOn(auth, "requireUserWithRoles").mockResolvedValue({
+        id: "manager", email: "manager@test.com", role: "MANAGER", firstName: "M", lastName: "M",
+      });
+      vi.mocked(prisma.shift.findUnique).mockResolvedValue({
+        id: "shift-1", _count: { timeEntries: 1, shiftSwaps: 0 },
+      } as any);
+      expect(await deleteShift("shift-1")).toMatchObject({ success: false, code: "HAS_TIME_ENTRIES" });
+      expect(prisma.shift.delete).not.toHaveBeenCalled();
+      expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    });
+
+    it("supprime et audite atomiquement le shift sans pointage", async () => {
+      vi.spyOn(auth, "requireUserWithRoles").mockResolvedValue({
+        id: "manager", email: "manager@test.com", role: "MANAGER", firstName: "M", lastName: "M",
+      });
+      vi.mocked(prisma.shift.findUnique).mockResolvedValue({
+        id: "shift-1", userId: "employee", _count: { timeEntries: 0, shiftSwaps: 0 },
+      } as any);
+      vi.mocked(prisma.shift.findUniqueOrThrow).mockResolvedValue({ id: "shift-1", userId: "employee" } as any);
+      expect((await deleteShift("shift-1")).success).toBe(true);
+      expect(prisma.shift.delete).toHaveBeenCalledWith({ where: { id: "shift-1" } });
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ action: "SHIFT_DELETED", payloadOld: { id: "shift-1", userId: "employee" }, payloadNew: expect.anything() }),
+      }));
+    });
   });
 
   describe("RBAC", () => {

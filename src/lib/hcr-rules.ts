@@ -18,6 +18,7 @@ import { APP_TIMEZONE } from "./time-utils";
 
 export const HCR_RULES = {
   MIN_DAILY_REST_HOURS: 11,
+  MAX_DAILY_AMPLITUDE_HOURS: 13,
   MAX_WEEKLY_HOURS: 48,
   MIN_WEEKLY_REST_DAYS: 2,
   MAX_CONSECUTIVE_WORKED_DAYS: 5,
@@ -77,26 +78,36 @@ export function checkDailyRest(
 
 /**
  * Vérifie le repos quotidien sur une liste de shifts.
- * Trie les shifts par heure de début et vérifie chaque intervalle consécutif.
+ * Les services d'une même journée sont regroupés par date de début à Paris.
  */
 export function validateConsecutiveShiftsDailyRest(
   shifts: ShiftTimeInterval[],
-  minHours: number = HCR_RULES.MIN_DAILY_REST_HOURS
-): { isValid: boolean; violationIndex?: number } {
-  if (shifts.length <= 1) {
-    return { isValid: true };
-  }
-
+  minHours: number = HCR_RULES.MIN_DAILY_REST_HOURS,
+  timeZone: string = APP_TIMEZONE
+): { isValid: boolean; violationIndex?: number; reason?: "overlap" | "amplitude" | "rest" } {
   const sortedShifts = [...shifts].sort(
     (a, b) => a.startTime.getTime() - b.startTime.getTime()
   );
 
-  for (let i = 0; i < sortedShifts.length - 1; i++) {
-    const currentShift = sortedShifts[i];
-    const nextShift = sortedShifts[i + 1];
-
-    if (!checkDailyRest(currentShift.endTime, nextShift.startTime, minHours)) {
-      return { isValid: false, violationIndex: i };
+  let dayStart: Date | undefined;
+  let dayKey = "";
+  let latestEnd: Date | undefined;
+  for (let i = 0; i < sortedShifts.length; i++) {
+    const shift = sortedShifts[i];
+    const key = format(toZonedTime(shift.startTime, timeZone), "yyyy-MM-dd");
+    if (latestEnd && shift.startTime < latestEnd) {
+      return { isValid: false, violationIndex: Math.max(0, i - 1), reason: "overlap" };
+    }
+    if (key !== dayKey) {
+      if (latestEnd && !checkDailyRest(latestEnd, shift.startTime, minHours)) {
+        return { isValid: false, violationIndex: Math.max(0, i - 1), reason: "rest" };
+      }
+      dayKey = key;
+      dayStart = shift.startTime;
+    }
+    latestEnd = shift.endTime;
+    if (dayStart && differenceInMilliseconds(latestEnd, dayStart) > HCR_RULES.MAX_DAILY_AMPLITUDE_HOURS * 3600000) {
+      return { isValid: false, violationIndex: Math.max(0, i - 1), reason: "amplitude" };
     }
   }
 
@@ -399,12 +410,15 @@ export function validateShiftSwapEligibility(
   const combinedShifts = [...targetUserExistingShifts, shiftToTake];
   const restValidation = validateConsecutiveShiftsDailyRest(
     combinedShifts,
-    minDailyRestHours
+    minDailyRestHours,
+    timeZone
   );
   if (!restValidation.isValid) {
-    errors.push(
-      `Non-respect du repos quotidien légal (${minDailyRestHours}h consécutives obligatoires).`
-    );
+    if (restValidation.reason === "amplitude") {
+      errors.push("Dépassement de l'amplitude journalière maximale de 13h.");
+    } else if (restValidation.reason === "rest") {
+      errors.push(`Non-respect du repos quotidien légal (${minDailyRestHours}h consécutives obligatoires).`);
+    }
   }
 
   // 2. Plafond hebdomadaire (48h)
@@ -426,9 +440,11 @@ export function validateShiftSwapEligibility(
     shiftToTake.startTime,
     timeZone
   );
-  if (!weeklyRestValidation.isValid) {
+  const endWeekRestValidation = validateWeeklyRestDays(combinedShifts, shiftToTake.endTime, timeZone);
+  if (!weeklyRestValidation.isValid || !endWeekRestValidation.isValid) {
+    const invalidWeek = weeklyRestValidation.isValid ? endWeekRestValidation : weeklyRestValidation;
     errors.push(
-      `Non-respect du repos hebdomadaire (minimum ${HCR_RULES.MIN_WEEKLY_REST_DAYS} jours de repos requis par semaine civile, actuellement ${weeklyRestValidation.restDaysCount} jours).`
+      `Non-respect du repos hebdomadaire (minimum ${HCR_RULES.MIN_WEEKLY_REST_DAYS} jours de repos requis par semaine civile, actuellement ${invalidWeek.restDaysCount} jours).`
     );
   }
 

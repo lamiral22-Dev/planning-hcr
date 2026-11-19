@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { INVALID_SHIFT_TIME_MESSAGE, isValidShiftInterval, isValidShiftTimes } from "@/lib/time-utils";
 
 export const RoleEnum = z.enum(["SALARIE", "MANAGER", "SUPER_ADMIN"]);
 export const ShiftStatusEnum = z.enum([
@@ -37,8 +38,8 @@ export const ShiftSchema = z
     derogationComment: z.string().optional().nullable(),
     planningVersion: z.number().int().default(1),
   })
-  .refine((data) => data.endTime > data.startTime, {
-    message: "L'heure de fin doit être postérieure à l'heure de début",
+  .refine((data) => isValidShiftInterval(data.startTime, data.endTime), {
+    message: INVALID_SHIFT_TIME_MESSAGE,
     path: ["endTime"],
   });
 
@@ -135,6 +136,9 @@ export const MasterTemplateSchema = z.object({
   endTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Format heure invalide (HH:mm)"),
   roleTarget: RoleEnum.default("SALARIE"),
   isActive: z.boolean().default(true),
+}).refine((data) => isValidShiftTimes(data.startTime, data.endTime), {
+  message: INVALID_SHIFT_TIME_MESSAGE,
+  path: ["endTime"],
 });
 
 // --- MISSED CLOCK-IN SCHEMA ---

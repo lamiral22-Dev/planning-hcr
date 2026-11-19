@@ -7,6 +7,7 @@ import {
   upsertMasterTemplate,
   deleteMasterTemplate,
 } from "@/actions/template-actions";
+import { INVALID_SHIFT_TIME_MESSAGE, isOvernightTime, isValidShiftTimes } from "@/lib/time-utils";
 
 export interface MasterTemplateItem {
   id: string;
@@ -23,6 +24,7 @@ interface MasterTemplateModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  startCreating?: boolean;
 }
 
 const DAYS_OF_WEEK = [
@@ -39,6 +41,7 @@ export function MasterTemplateModal({
   isOpen,
   onClose,
   onSuccess,
+  startCreating = false,
 }: MasterTemplateModalProps) {
   const [activeWeek, setActiveWeek] = useState<number>(1);
   const [templates, setTemplates] = useState<MasterTemplateItem[]>([]);
@@ -83,10 +86,10 @@ export function MasterTemplateModal({
   useEffect(() => {
     if (isOpen) {
       loadTemplates();
-      setIsEditing(false);
+      setIsEditing(startCreating);
       setEditingId(null);
     }
-  }, [isOpen]);
+  }, [isOpen, startCreating]);
 
   if (!isOpen) return null;
 
@@ -138,6 +141,10 @@ export function MasterTemplateModal({
   const handleSubmitForm = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (!isValidShiftTimes(formData.startTime, formData.endTime)) {
+      setError(INVALID_SHIFT_TIME_MESSAGE);
+      return;
+    }
     startTransition(async () => {
       const res = await upsertMasterTemplate({
         id: editingId ?? undefined,
@@ -279,7 +286,7 @@ export function MasterTemplateModal({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Heure de fin (HH:mm)
+                  Heure de fin (HH:mm) {isOvernightTime(formData.startTime, formData.endTime) && <span>+1j</span>}
                 </label>
                 <input
                   type="time"
@@ -393,7 +400,7 @@ export function MasterTemplateModal({
                           <td className="p-3 font-bold text-slate-900">{dayName}</td>
                           <td className="p-3 font-medium text-slate-800">{item.name}</td>
                           <td className="p-3 text-slate-700 font-semibold">
-                            {item.startTime} - {item.endTime}
+                            {item.startTime} - {item.endTime} {isOvernightTime(item.startTime, item.endTime) ? "+1j" : ""}
                           </td>
                           <td className="p-3 text-slate-600">
                             <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-800 text-[11px] font-semibold">

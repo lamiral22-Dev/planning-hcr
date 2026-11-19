@@ -2,8 +2,11 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { createShift, updateShift } from "@/actions/shift-actions";
+import { createShift, deleteShift, updateShift } from "@/actions/shift-actions";
 import { checkNoticePeriod } from "@/lib/hcr-rules";
+import { format } from "date-fns";
+import { INVALID_SHIFT_TIME_MESSAGE, isOvernightTime, isValidShiftTimes, shiftDatesForDay, toAppTime } from "@/lib/time-utils";
+import { fromZonedTime } from "date-fns-tz";
 
 export interface EmployeeOption {
   id: string;
@@ -42,15 +45,15 @@ export function ShiftFormModal({
   useEffect(() => {
     if (initialData) {
       setUserId(initialData.userId);
-      const d = new Date(initialData.startTime);
-      setDateStr(d.toISOString().slice(0, 10));
-      setStartTimeStr(d.toTimeString().slice(0, 5));
-      const endD = new Date(initialData.endTime);
-      setEndTimeStr(endD.toTimeString().slice(0, 5));
+      const d = toAppTime(new Date(initialData.startTime));
+      setDateStr(format(d, "yyyy-MM-dd"));
+      setStartTimeStr(format(d, "HH:mm"));
+      const endD = toAppTime(new Date(initialData.endTime));
+      setEndTimeStr(format(endD, "HH:mm"));
     } else {
       if (employees.length > 0) setUserId(employees[0].id);
       const today = new Date();
-      setDateStr(today.toISOString().slice(0, 10));
+      setDateStr(format(toAppTime(today), "yyyy-MM-dd"));
       setStartTimeStr("09:00");
       setEndTimeStr("17:00");
     }
@@ -59,7 +62,7 @@ export function ShiftFormModal({
   // Détection dynamique J < 8
   useEffect(() => {
     if (dateStr && startTimeStr) {
-      const shiftStart = new Date(`${dateStr}T${startTimeStr}:00`);
+      const shiftStart = fromZonedTime(`${dateStr}T${startTimeStr}:00`, "Europe/Paris");
       if (!isNaN(shiftStart.getTime())) {
         const check = checkNoticePeriod(shiftStart, new Date());
         setIsLate(check.requiresDerogation);
@@ -75,11 +78,8 @@ export function ShiftFormModal({
     setIsSubmitting(true);
 
     try {
-      const start = new Date(`${dateStr}T${startTimeStr}:00`);
-      let end = new Date(`${dateStr}T${endTimeStr}:00`);
-      if (end <= start) {
-        end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
-      }
+      if (!isValidShiftTimes(startTimeStr, endTimeStr)) throw new Error(INVALID_SHIFT_TIME_MESSAGE);
+      const { startTime: start, endTime: end } = shiftDatesForDay(dateStr, startTimeStr, endTimeStr);
 
       if (initialData?.id) {
         const res = await updateShift(initialData.id, {
@@ -113,6 +113,25 @@ export function ShiftFormModal({
       onClose();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Erreur inattendue");
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!initialData?.id || !window.confirm("Supprimer définitivement ce shift ?")) return;
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      const result = await deleteShift(initialData.id);
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+      onSuccess();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur inattendue");
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -193,7 +212,7 @@ export function ShiftFormModal({
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Heure de fin
+                Heure de fin {isOvernightTime(startTimeStr, endTimeStr) && <span>+1j</span>}
               </label>
               <input
                 type="time"
@@ -206,6 +225,11 @@ export function ShiftFormModal({
           </div>
 
           <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+            {initialData?.id && (
+              <Button type="button" onClick={handleDelete} disabled={isSubmitting} className="mr-auto bg-red-600 hover:bg-red-700 text-white">
+                Supprimer
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"

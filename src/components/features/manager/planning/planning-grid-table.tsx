@@ -4,6 +4,8 @@ import React from "react";
 import { format, isSameDay } from "date-fns";
 import { fr } from "date-fns/locale";
 import { ManagerShiftBadge } from "./manager-shift-badge";
+import { isOvernightTime, toAppTime } from "@/lib/time-utils";
+import type { MasterTemplateItem } from "./master-template-modal";
 
 export interface PlanningShift {
   id: string;
@@ -27,6 +29,12 @@ interface PlanningGridTableProps {
   shifts: PlanningShift[];
   onSelectShift?: (shift: PlanningShift) => void;
   onAddShift?: (employeeId: string, day: Date) => void;
+  templates?: MasterTemplateItem[];
+  selectedTemplateId?: string | null;
+  onSelectTemplate?: (id: string) => void;
+  onAddTemplate?: () => void;
+  onPlaceTemplate?: (templateId: string, employeeId: string, day: Date) => void;
+  isPlacing?: boolean;
 }
 
 export function PlanningGridTable({
@@ -35,6 +43,12 @@ export function PlanningGridTable({
   shifts,
   onSelectShift,
   onAddShift,
+  templates = [],
+  selectedTemplateId,
+  onSelectTemplate,
+  onAddTemplate,
+  onPlaceTemplate,
+  isPlacing = false,
 }: PlanningGridTableProps) {
   // Calculer les heures travaillées par collaborateur sur la quinzaine
   const getEmployeeStats = (empId: string) => {
@@ -78,6 +92,32 @@ export function PlanningGridTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200 text-xs print:text-[10px]">
+          <tr className="bg-blue-50 print:hidden">
+            <th className="p-3 border-r border-slate-200 sticky left-0 bg-blue-50 z-10">Créneaux du restaurant</th>
+            <td colSpan={days.length + 1} className="p-2">
+              <div className="flex flex-wrap gap-2 items-center">
+                {templates.filter((t) => t.isActive).map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    draggable
+                    aria-pressed={selectedTemplateId === template.id}
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData("text/plain", template.id);
+                      event.dataTransfer.effectAllowed = "copy";
+                    }}
+                    onClick={() => onSelectTemplate?.(template.id)}
+                    className={`rounded border px-2 py-1 bg-white ${selectedTemplateId === template.id ? "border-blue-600 ring-2 ring-blue-300" : "border-slate-300"}`}
+                  >
+                    {template.name} {template.startTime} - {template.endTime}{isOvernightTime(template.startTime, template.endTime) ? " +1j" : ""}
+                  </button>
+                ))}
+                {templates.filter((t) => t.isActive).length === 0 && <span>Aucun créneau actif.</span>}
+                <button type="button" onClick={onAddTemplate} className="rounded border border-blue-400 px-2 py-1 text-blue-700">+ Ajouter un créneau</button>
+                {selectedTemplateId && <span>Sélectionnez une case pour affecter ce créneau.</span>}
+              </div>
+            </td>
+          </tr>
           {employees.map((emp) => {
             const stats = getEmployeeStats(emp.id);
             const isArchived = emp.isActive === false;
@@ -107,12 +147,22 @@ export function PlanningGridTable({
                     (s) =>
                       s.userId === emp.id &&
                       s.status !== "ANNULE" &&
-                      isSameDay(new Date(s.startTime), day)
+                      isSameDay(toAppTime(new Date(s.startTime)), day)
                   );
 
                   return (
                     <td
                       key={dIdx}
+                      onDragOver={(event) => {
+                        if (!isArchived && !isPlacing) event.preventDefault();
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const id = event.dataTransfer.getData("text/plain");
+                        if (!isArchived && !isPlacing && templates.some((t) => t.id === id && t.isActive)) {
+                          onPlaceTemplate?.(id, emp.id, day);
+                        }
+                      }}
                       className={`p-1.5 print:p-0.5 align-top border-r border-slate-200 h-20 print:h-auto ${
                         dIdx === 6 || dIdx === 13 ? "bg-slate-50/50" : ""
                       }`}
@@ -120,8 +170,10 @@ export function PlanningGridTable({
                       {dayShifts.length > 0 ? (
                         <div className="space-y-1 print:space-y-0.5">
                           {dayShifts.map((shift) => {
-                            const startStr = format(new Date(shift.startTime), "HH:mm");
-                            const endStr = format(new Date(shift.endTime), "HH:mm");
+                            const start = toAppTime(new Date(shift.startTime));
+                            const end = toAppTime(new Date(shift.endTime));
+                            const startStr = format(start, "HH:mm");
+                            const endStr = format(end, "HH:mm");
                             return (
                               <button
                                 key={shift.id}
@@ -129,7 +181,7 @@ export function PlanningGridTable({
                                 className="w-full text-left p-1 print:p-0.5 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors print:bg-slate-50 print:border-slate-300"
                               >
                                 <div className="font-semibold text-blue-900 print:text-[9px]">
-                                  {startStr} - {endStr}
+                                  {startStr} - {endStr}{!isSameDay(start, end) ? " +1j" : ""}
                                 </div>
                                 <ManagerShiftBadge
                                   status={shift.status}
@@ -138,14 +190,18 @@ export function PlanningGridTable({
                               </button>
                             );
                           })}
+                          {!isArchived && selectedTemplateId && (
+                            <button type="button" disabled={isPlacing} onClick={() => onPlaceTemplate?.(selectedTemplateId, emp.id, day)} className="w-full text-blue-700 print:hidden">+ Affecter</button>
+                          )}
                         </div>
                       ) : (
                         <div className="h-full flex items-center justify-center">
                           {!isArchived ? (
                             <button
-                              onClick={() => onAddShift?.(emp.id, day)}
+                              disabled={isPlacing}
+                              onClick={() => selectedTemplateId ? onPlaceTemplate?.(selectedTemplateId, emp.id, day) : onAddShift?.(emp.id, day)}
                               className="text-slate-300 hover:text-blue-600 hover:bg-blue-50 w-full h-full rounded flex items-center justify-center font-bold text-base transition-colors print:hidden"
-                              title="Ajouter un shift"
+                              title={selectedTemplateId ? "Affecter le créneau sélectionné" : "Ajouter un shift"}
                             >
                               +
                             </button>

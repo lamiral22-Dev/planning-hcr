@@ -5,6 +5,8 @@ Application web conçue pour l'hôtellerie-restauration, optimisant l'organisati
 ## Fonctionnalités Clés
 
 - **Planification & Grille type :** Modélisation d'une grille récurrente et publication à la quinzaine[cite: 2].
+- **Banque de créneaux :** Dans le planning manager, les créneaux actifs du planning type peuvent être déposés plusieurs fois ou sélectionnés puis affectés au clic. Les créations restent soumises aux contrôles HCR et au délai de prévenance.
+- **Services en coupure et de nuit :** Les services d'une même journée ne doivent pas se chevaucher ni dépasser 13 h d'amplitude ; le repos entre journées est de 11 h. Une fin le lendemain n'est admise que pour un début après 17 h et une fin avant 5 h.
 - **Garde-fous HCR intégrés :** Blocage automatique en cas de non-respect du repos quotidien de 11h, du plafond de 48h/semaine ou des 2 jours de repos hebdomadaires[cite: 2, 3].
 - **Délai de prévenance & Dérogations :** Alerte sur les changements à moins de 8 jours et émargement numérique obligatoire[cite: 2, 3].
 - **Bourse d'échange de shifts :** Échanges directs entre équipiers sous contrôle de conformité et validation manager[cite: 2].
@@ -30,3 +32,9 @@ Application web conçue pour l'hôtellerie-restauration, optimisant l'organisati
 
 - Les règles de développement et invariants métier sont détaillés dans [`GEMINI.md`](./GEMINI.md)[cite: 3].
 - L'arborescence des dossiers et la topologie de l'application sont décrites dans [`ARCHITECTURE.md`](./ARCHITECTURE.md)[cite: 4].
+
+## Vérification manuelle du planning
+
+Dans `/manager/planning`, ajouter un créneau type, puis l'affecter par glisser-déposer et par sélection suivie d'un clic sur une cellule. Vérifier les alertes HCR et la dérogation à moins de 8 jours. Essayer une coupure, un chevauchement, une amplitude supérieure à 13 h et une fermeture de nuit. Enfin, ouvrir un shift pour le supprimer ; la suppression doit être refusée lorsqu'un pointage ou une demande d'échange y est associé.
+
+Attention : `npm run build` exécute `prisma db push --accept-data-loss` sur la base désignée par `DATABASE_URL` ; utiliser une base dédiée pour les vérifications.

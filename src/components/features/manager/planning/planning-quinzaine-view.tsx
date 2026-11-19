@@ -7,24 +7,33 @@ import { PlanningToolbar } from "./planning-toolbar";
 import { PlanningGridTable, type PlanningShift, type PlanningEmployee } from "./planning-grid-table";
 import { ShiftFormModal } from "./shift-form-modal";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MasterTemplateModal, type MasterTemplateItem } from "./master-template-modal";
+import { createShift } from "@/actions/shift-actions";
+import { shiftDatesForDay, toAppTime } from "@/lib/time-utils";
 
 interface PlanningQuinzaineViewProps {
   initialShifts: PlanningShift[];
   employees: PlanningEmployee[];
   isLoading?: boolean;
+  initialTemplates?: MasterTemplateItem[];
 }
 
 export function PlanningQuinzaineView({
   initialShifts,
   employees,
   isLoading = false,
+  initialTemplates = [],
 }: PlanningQuinzaineViewProps) {
   // Navigation de la quinzaine (commence le lundi)
   const [startDate, setStartDate] = useState<Date>(() => {
-    return startOfWeek(new Date(), { weekStartsOn: 1 });
+    return startOfWeek(toAppTime(new Date()), { weekStartsOn: 1 });
   });
 
-  const [shifts] = useState<PlanningShift[]>(initialShifts);
+  const [shifts, setShifts] = useState<PlanningShift[]>(initialShifts);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [isPlacing, setIsPlacing] = useState(false);
+  const [placementMessage, setPlacementMessage] = useState<string | null>(null);
   const [, setSelectedShift] = useState<PlanningShift | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalInitialData, setModalInitialData] = useState<{
@@ -52,10 +61,7 @@ export function PlanningQuinzaineView({
   };
 
   const handleAddShiftAt = (employeeId: string, day: Date) => {
-    const start = new Date(day);
-    start.setHours(9, 0, 0, 0);
-    const end = new Date(day);
-    end.setHours(17, 0, 0, 0);
+    const { startTime: start, endTime: end } = shiftDatesForDay(format(day, "yyyy-MM-dd"), "09:00", "17:00");
 
     setModalInitialData({
       userId: employeeId,
@@ -74,6 +80,29 @@ export function PlanningQuinzaineView({
       endTime: new Date(shift.endTime),
     });
     setIsModalOpen(true);
+  };
+
+  const handlePlaceTemplate = async (templateId: string, employeeId: string, day: Date) => {
+    const template = initialTemplates.find((item) => item.id === templateId && item.isActive);
+    if (!template || isPlacing) return;
+    setIsPlacing(true);
+    setPlacementMessage(null);
+    try {
+      const { startTime, endTime } = shiftDatesForDay(format(day, "yyyy-MM-dd"), template.startTime, template.endTime);
+      const result = await createShift({
+        userId: employeeId, startTime, endTime, status: "BROUILLON", isLateModification: false, planningVersion: 1,
+      });
+      if (!result.success) {
+        setPlacementMessage(result.error);
+      } else {
+        setShifts((previous) => [...previous, result.data]);
+        setPlacementMessage("Créneau ajouté au planning.");
+      }
+    } catch (error) {
+      setPlacementMessage(error instanceof Error ? error.message : "Erreur lors de l'affectation.");
+    } finally {
+      setIsPlacing(false);
+    }
   };
 
   if (isLoading) {
@@ -164,6 +193,7 @@ export function PlanningQuinzaineView({
         }}
       />
 
+      {placementMessage && <div role="status" className="rounded border border-slate-200 bg-white p-3 text-sm">{placementMessage}</div>}
       {/* Table quinzaine ou Empty State */}
       {employees.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
@@ -178,9 +208,21 @@ export function PlanningQuinzaineView({
           shifts={shifts}
           onSelectShift={handleSelectShift}
           onAddShift={handleAddShiftAt}
+          templates={initialTemplates}
+          selectedTemplateId={selectedTemplateId}
+          onSelectTemplate={(id) => setSelectedTemplateId((current) => current === id ? null : id)}
+          onAddTemplate={() => setIsTemplateModalOpen(true)}
+          onPlaceTemplate={handlePlaceTemplate}
+          isPlacing={isPlacing}
         />
       )}
 
+      <MasterTemplateModal
+        isOpen={isTemplateModalOpen}
+        startCreating
+        onClose={() => setIsTemplateModalOpen(false)}
+        onSuccess={() => window.location.reload()}
+      />
       {/* Modal de création / édition */}
       <ShiftFormModal
         isOpen={isModalOpen}
