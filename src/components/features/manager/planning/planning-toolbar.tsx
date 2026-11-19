@@ -4,6 +4,8 @@ import React, { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { applyMasterTemplate, publishQuinzaine } from "@/actions/shift-actions";
 import { MasterTemplateModal } from "./master-template-modal";
+import { addDays } from "date-fns";
+import { fromAppTime } from "@/lib/time-utils";
 
 interface PlanningToolbarProps {
   startDate: Date;
@@ -41,7 +43,10 @@ export function PlanningToolbar({
       return;
     }
     startTransition(async () => {
-      const res = await publishQuinzaine(startDate, endDate);
+      const res = await publishQuinzaine(
+        fromAppTime(startDate),
+        new Date(fromAppTime(addDays(endDate, 1)).getTime() - 1)
+      );
       if (res.success) {
         alert("Quinzaine publiée avec succès !");
         if (onRefresh) onRefresh();

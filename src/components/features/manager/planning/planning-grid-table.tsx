@@ -6,6 +6,9 @@ import { fr } from "date-fns/locale";
 import { ManagerShiftBadge } from "./manager-shift-badge";
 import { isOvernightTime, toAppTime } from "@/lib/time-utils";
 import type { MasterTemplateItem } from "./master-template-modal";
+import { calculateWeeklyHours } from "@/lib/hcr-rules";
+import { addDays } from "date-fns";
+import { fromAppTime } from "@/lib/time-utils";
 
 export interface PlanningShift {
   id: string;
@@ -35,6 +38,7 @@ interface PlanningGridTableProps {
   onAddTemplate?: () => void;
   onPlaceTemplate?: (templateId: string, employeeId: string, day: Date) => void;
   isPlacing?: boolean;
+  readOnly?: boolean;
 }
 
 export function PlanningGridTable({
@@ -49,23 +53,29 @@ export function PlanningGridTable({
   onAddTemplate,
   onPlaceTemplate,
   isPlacing = false,
+  readOnly = false,
 }: PlanningGridTableProps) {
   // Calculer les heures travaillées par collaborateur sur la quinzaine
   const getEmployeeStats = (empId: string) => {
-    const empShifts = shifts.filter((s) => s.userId === empId && s.status !== "ANNULE");
+    const empShifts = shifts.filter((s) => s.userId === empId && s.status !== "ANNULE").map((s) => ({
+      startTime: new Date(s.startTime),
+      endTime: new Date(s.endTime),
+    }));
     let totalMinutes = 0;
+    const periodStart = fromAppTime(days[0]).getTime();
+    const periodEnd = fromAppTime(addDays(days[days.length - 1], 1)).getTime();
 
     // Découpage en 2 semaines (jours 0-6 et 7-13)
     empShifts.forEach((s) => {
       const start = new Date(s.startTime);
       const end = new Date(s.endTime);
-      const diffMin = Math.max(0, (end.getTime() - start.getTime()) / (1000 * 60));
+      const diffMin = Math.max(0, (Math.min(end.getTime(), periodEnd) - Math.max(start.getTime(), periodStart)) / (1000 * 60));
       totalMinutes += diffMin;
     });
 
     return {
       totalHours: (totalMinutes / 60).toFixed(1),
-      isOver48h: totalMinutes / 60 > 48,
+      isOver48h: [days[0], days[7]].some((day) => day && calculateWeeklyHours(empShifts, fromAppTime(day)) > 48),
     };
   };
 
@@ -92,7 +102,7 @@ export function PlanningGridTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200 text-xs print:text-[10px]">
-          <tr className="bg-blue-50 print:hidden">
+          {!readOnly && <tr className="bg-blue-50 print:hidden">
             <th className="p-3 border-r border-slate-200 sticky left-0 bg-blue-50 z-10">Créneaux du restaurant</th>
             <td colSpan={days.length + 1} className="p-2">
               <div className="flex flex-wrap gap-2 items-center">
@@ -117,7 +127,7 @@ export function PlanningGridTable({
                 {selectedTemplateId && <span>Sélectionnez une case pour affecter ce créneau.</span>}
               </div>
             </td>
-          </tr>
+          </tr>}
           {employees.map((emp) => {
             const stats = getEmployeeStats(emp.id);
             const isArchived = emp.isActive === false;
@@ -154,12 +164,12 @@ export function PlanningGridTable({
                     <td
                       key={dIdx}
                       onDragOver={(event) => {
-                        if (!isArchived && !isPlacing) event.preventDefault();
+                        if (!readOnly && !isArchived && !isPlacing) event.preventDefault();
                       }}
                       onDrop={(event) => {
                         event.preventDefault();
                         const id = event.dataTransfer.getData("text/plain");
-                        if (!isArchived && !isPlacing && templates.some((t) => t.id === id && t.isActive)) {
+                        if (!readOnly && !isArchived && !isPlacing && templates.some((t) => t.id === id && t.isActive)) {
                           onPlaceTemplate?.(id, emp.id, day);
                         }
                       }}
@@ -177,7 +187,8 @@ export function PlanningGridTable({
                             return (
                               <button
                                 key={shift.id}
-                                onClick={() => onSelectShift?.(shift)}
+                                onClick={readOnly ? undefined : () => onSelectShift?.(shift)}
+                                disabled={readOnly}
                                 className="w-full text-left p-1 print:p-0.5 rounded bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors print:bg-slate-50 print:border-slate-300"
                               >
                                 <div className="font-semibold text-blue-900 print:text-[9px]">
@@ -190,13 +201,13 @@ export function PlanningGridTable({
                               </button>
                             );
                           })}
-                          {!isArchived && selectedTemplateId && (
+                          {!readOnly && !isArchived && selectedTemplateId && (
                             <button type="button" disabled={isPlacing} onClick={() => onPlaceTemplate?.(selectedTemplateId, emp.id, day)} className="w-full text-blue-700 print:hidden">+ Affecter</button>
                           )}
                         </div>
                       ) : (
                         <div className="h-full flex items-center justify-center">
-                          {!isArchived ? (
+                          {!readOnly && !isArchived ? (
                             <button
                               disabled={isPlacing}
                               onClick={() => selectedTemplateId ? onPlaceTemplate?.(selectedTemplateId, emp.id, day) : onAddShift?.(emp.id, day)}

@@ -287,27 +287,25 @@ export async function publishQuinzaine(
   try {
     const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
 
-    // Récupérer tous les shifts brouillons sur la plage
-    const shiftsToPublish = await prisma.shift.findMany({
-      where: {
-        startTime: { gte: startDate, lte: endDate },
-        status: "BROUILLON",
-      },
-    });
-
-    if (shiftsToPublish.length === 0) {
-      return {
-        success: true,
-        data: { publishedCount: 0, derogationCount: 0 },
-      };
+    if (!(startDate instanceof Date) || !(endDate instanceof Date) ||
+        !Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || startDate > endDate) {
+      return { success: false, error: "Période de publication invalide." };
     }
 
     const now = new Date();
     const result = await prisma.$transaction(async (tx) => {
+      const candidates = await tx.shift.findMany({
+        where: { startTime: { gte: startDate, lte: endDate }, status: "BROUILLON" },
+        orderBy: { id: "asc" },
+        select: { id: true },
+      });
       let publishedCount = 0;
       let derogationCount = 0;
 
-      for (const shift of shiftsToPublish) {
+      for (const candidate of candidates) {
+        await tx.$queryRaw`SELECT id FROM "Shift" WHERE id = ${candidate.id} FOR UPDATE`;
+        const shift = await tx.shift.findUnique({ where: { id: candidate.id } });
+        if (!shift || shift.status !== "BROUILLON" || shift.startTime < startDate || shift.startTime > endDate) continue;
         const noticeCheck = checkNoticePeriod(shift.startTime, now);
         const requiresDerogation = noticeCheck.requiresDerogation;
         const newStatus = requiresDerogation ? "EN_ATTENTE_DEROGATION" : "PUBLIE";
@@ -315,7 +313,7 @@ export async function publishQuinzaine(
         if (requiresDerogation) derogationCount++;
         else publishedCount++;
 
-        await tx.shift.update({
+        const updated = await tx.shift.update({
           where: { id: shift.id },
           data: {
             status: newStatus,
@@ -324,16 +322,27 @@ export async function publishQuinzaine(
             planningVersion: (shift.planningVersion || 1) + 1,
           },
         });
+        await tx.auditLog.create({
+          data: {
+            action: "SHIFT_PUBLISHED",
+            tableName: "Shift",
+            recordId: shift.id,
+            userId: actor.id,
+            payloadOld: JSON.parse(JSON.stringify(shift)) as Prisma.InputJsonValue,
+            payloadNew: JSON.parse(JSON.stringify(updated)) as Prisma.InputJsonValue,
+            timestamp: now,
+          },
+        });
       }
 
-      await tx.auditLog.create({
+      if (publishedCount + derogationCount > 0) await tx.auditLog.create({
         data: {
           action: "QUINZAINE_PUBLISHED",
           tableName: "Shift",
           recordId: "BATCH",
           userId: actor.id,
           payloadNew: {
-            total: shiftsToPublish.length,
+            total: publishedCount + derogationCount,
             publishedCount,
             derogationCount,
             startDate: startDate.toISOString(),

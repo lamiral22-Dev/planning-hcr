@@ -11,8 +11,9 @@ interface NavLinkItem {
 
 const navItems: NavLinkItem[] = [
   { href: "/manager/planning", label: "Planning Quinzaine" },
+  { href: "/manager/planning-salarie", label: "Consultation Planning Salarié" },
   { href: "/manager/arbitrage", label: "Arbitrage & Bourse" },
-  { href: "/manager/exports", label: "Exports Paie" },
+  { href: "/manager/paie", label: "Exports Paie" },
   { href: "/manager/equipe", label: "Équipe" },
   { href: "/manager/audit", label: "Registre d'Audit" },
 ];
@@ -25,7 +26,7 @@ export function ManagerNav() {
       {navItems.map((item) => {
         const isActive =
           pathname === item.href ||
-          (item.href !== "/manager" && pathname.startsWith(item.href));
+          (item.href !== "/manager" && pathname.startsWith(`${item.href}/`));
 
         return (
           <Link
