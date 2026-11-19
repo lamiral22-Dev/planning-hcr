@@ -8,6 +8,7 @@ import * as shiftActions from "@/actions/shift-actions";
 vi.mock("@/actions/shift-actions", () => ({
   createShift: vi.fn(),
   updateShift: vi.fn(),
+  deleteShift: vi.fn(),
   applyMasterTemplate: vi.fn(),
   publishQuinzaine: vi.fn(),
 }));
@@ -87,5 +88,30 @@ describe("PlanningQuinzaineView", () => {
 
     expect(screen.getByRole("heading", { name: /Créer un shift/i })).toBeDefined();
     expect(screen.getAllByText(/Collaborateur/i).length).toBeGreaterThan(0);
+  });
+
+  it("réutilise un créneau sélectionné au clic et en glisser-déposer", async () => {
+    const template = {
+      id: "tpl-1", name: "Service soir", weekNumber: 1, dayOfWeek: 1,
+      startTime: "20:00", endTime: "02:00", roleTarget: "SALARIE" as const, isActive: true,
+    };
+    vi.mocked(shiftActions.createShift).mockImplementation(async (input) => ({
+      success: true, data: {
+        ...input, id: `shift-${input.userId}`, createdAt: new Date(), updatedAt: new Date(),
+        acknowledgedAt: null, derogationRequestedAt: null, derogationAcceptedAt: null, derogationComment: null,
+      },
+    }));
+    const { container } = render(
+      <PlanningQuinzaineView employees={mockEmployees} initialShifts={[]} initialTemplates={[template]} />
+    );
+    const bank = screen.getByRole("button", { name: /Service soir 20:00/ });
+    expect(bank.textContent).toContain("+1j");
+    fireEvent.click(bank);
+    fireEvent.click(screen.getAllByTitle("Affecter le créneau sélectionné")[0]);
+    await waitFor(() => expect(shiftActions.createShift).toHaveBeenCalledTimes(1));
+    const cells = container.querySelectorAll("tbody tr")[1].querySelectorAll("td");
+    fireEvent.drop(cells[2], { dataTransfer: { getData: () => "tpl-1" } });
+    await waitFor(() => expect(shiftActions.createShift).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: /Service soir 20:00/ })).toBeDefined();
   });
 });

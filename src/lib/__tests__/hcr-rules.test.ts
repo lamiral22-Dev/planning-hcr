@@ -37,7 +37,7 @@ describe("Moteur de règles HCR - src/lib/hcr-rules.ts", () => {
       expect(checkDailyRest(end, nextStart)).toBe(false);
     });
 
-    it("détecte une coupure en journée de moins de 11h consécutives entre deux shifts", () => {
+    it("autorise une coupure intra-journalière avec repos suffisant le lendemain", () => {
       // Shift 1: 10:00 - 14:00 (coupure l'après-midi de 4h)
       // Shift 2: 18:00 - 23:00
       // Shift 3: 11:00 - 15:00 (repos nuit jusqu'au lendemain = 12h)
@@ -57,8 +57,25 @@ describe("Moteur de règles HCR - src/lib/hcr-rules.ts", () => {
       ];
 
       const result = validateConsecutiveShiftsDailyRest(shifts);
-      expect(result.isValid).toBe(false);
-      expect(result.violationIndex).toBe(0); // Violation entre 14:00 et 18:00 (4h < 11h)
+      expect(result.isValid).toBe(true);
+    });
+
+    it("contrôle le chevauchement, l'amplitude et le repos après le dernier service", () => {
+      const shift = (start: string, end: string) => ({
+        startTime: new Date(start), endTime: new Date(end),
+      });
+      const midi = shift("2025-01-01T12:30:00+01:00", "2025-01-01T16:00:00+01:00");
+      const soir = shift("2025-01-01T18:30:00+01:00", "2025-01-01T23:00:00+01:00");
+      expect(validateConsecutiveShiftsDailyRest([midi, soir]).isValid).toBe(true);
+      expect(validateConsecutiveShiftsDailyRest([midi, shift("2025-01-01T15:59:00+01:00", "2025-01-01T20:00:00+01:00")]).reason).toBe("overlap");
+      expect(validateConsecutiveShiftsDailyRest([midi, shift("2025-01-01T16:00:00+01:00", "2025-01-02T01:30:00+01:00")]).isValid).toBe(true);
+      expect(validateConsecutiveShiftsDailyRest([midi, shift("2025-01-01T18:00:00+01:00", "2025-01-02T01:31:00+01:00")]).reason).toBe("amplitude");
+      expect(validateConsecutiveShiftsDailyRest([midi, soir, shift("2025-01-02T09:59:00+01:00", "2025-01-02T12:00:00+01:00")]).reason).toBe("rest");
+      expect(validateConsecutiveShiftsDailyRest([midi, soir, shift("2025-01-02T10:00:00+01:00", "2025-01-02T12:00:00+01:00")]).isValid).toBe(true);
+      expect(validateConsecutiveShiftsDailyRest([
+        shift("2025-01-01T20:00:00+01:00", "2025-01-02T02:00:00+01:00"),
+        shift("2025-01-02T10:00:00+01:00", "2025-01-02T14:00:00+01:00"),
+      ]).reason).toBe("rest");
     });
 
     it("valide validateConsecutiveShiftsDailyRest sur des shifts avec >= 11h entre chacun", () => {
@@ -357,9 +374,9 @@ describe("Moteur de règles HCR - src/lib/hcr-rules.ts", () => {
     });
 
     it("refuse si la reprise de shift brise le repos quotidien de 11h", () => {
-      // Repreneur a fini à 15h00 le 07/01, le nouveau shift commence à 22h00 le 07/01 (7h de repos < 11h)
+      // Reprise le lendemain avec moins de 11h de repos.
       const shiftToTake = {
-        startTime: new Date("2025-01-07T22:00:00+01:00"),
+        startTime: new Date("2025-01-08T01:00:00+01:00"),
         endTime: new Date("2025-01-08T04:00:00+01:00"),
       };
 

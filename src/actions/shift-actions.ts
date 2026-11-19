@@ -15,7 +15,15 @@ import {
   validateMaxConsecutiveWorkedDays,
   checkNoticePeriod,
 } from "@/lib/hcr-rules";
-import { Prisma } from "@prisma/client";
+import { Prisma, type Shift } from "@prisma/client";
+import { addDays, format } from "date-fns";
+import { shiftDatesForDay, toAppTime } from "@/lib/time-utils";
+
+function dailyViolation(reason?: "overlap" | "amplitude" | "rest") {
+  if (reason === "overlap") return { error: "Le créneau chevauche un shift déjà existant du salarié.", code: "SHIFT_OVERLAP" };
+  if (reason === "amplitude") return { error: "Dépassement de l'amplitude journalière maximale de 13h.", code: "DAILY_AMPLITUDE_VIOLATION" };
+  return { error: "Non-respect du repos quotidien légal (11h consécutives obligatoires).", code: "DAILY_REST_VIOLATION" };
+}
 
 export type ActionResult<T = unknown> =
   | { success: true; data: T }
@@ -30,81 +38,81 @@ export type ActionResult<T = unknown> =
  *  - Délai de prévenance (< 8 jours déclenche statut EN_ATTENTE_DEROGATION et isLateModification: true)
  *  - Transaction atomique Prisma avec création d'AuditLog.
  */
-export async function createShift(input: ShiftInput): Promise<ActionResult> {
+export async function createShift(input: ShiftInput): Promise<ActionResult<Shift>> {
   try {
     const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
     const validated = ShiftSchema.parse(input);
 
     // Récupération des shifts existants du salarié pour contrôler la conformité HCR
-    const existingShifts = await prisma.shift.findMany({
-      where: {
-        userId: validated.userId,
-        status: { not: "ANNULE" },
-      },
-      select: {
-        id: true,
-        startTime: true,
-        endTime: true,
-      },
-    });
+    return await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${validated.userId} FOR UPDATE`;
+      const existingShifts = await tx.shift.findMany({
+        where: {
+          userId: validated.userId,
+          status: { not: "ANNULE" },
+        },
+        select: {
+          id: true,
+          startTime: true,
+          endTime: true,
+        },
+      });
 
-    // 1. Contrôle du repos quotidien (11h)
-    const combinedShifts = [
-      ...existingShifts,
-      { startTime: validated.startTime, endTime: validated.endTime },
-    ];
+      // 1. Contrôle du repos quotidien (11h)
+      const combinedShifts = [
+        ...existingShifts,
+        { startTime: validated.startTime, endTime: validated.endTime },
+      ];
 
-    const dailyRestCheck = validateConsecutiveShiftsDailyRest(combinedShifts);
-    if (!dailyRestCheck.isValid) {
-      return {
-        success: false,
-        error: "Non-respect du repos quotidien légal (11h consécutives obligatoires).",
-        code: "DAILY_REST_VIOLATION",
-      };
-    }
+      const dailyRestCheck = validateConsecutiveShiftsDailyRest(combinedShifts);
+      if (!dailyRestCheck.isValid) {
+        return {
+          success: false,
+          ...dailyViolation(dailyRestCheck.reason),
+        };
+      }
 
-    // 2. Contrôle du plafond hebdomadaire (48h max)
-    const weeklyHoursCheck = validateWeeklyHours(
-      existingShifts,
-      { startTime: validated.startTime, endTime: validated.endTime }
-    );
-    if (!weeklyHoursCheck.isValid) {
-      return {
-        success: false,
-        error: `Dépassement du plafond hebdomadaire légal de 48h (cumul projeté : ${weeklyHoursCheck.totalHours}h).`,
-        code: "WEEKLY_HOURS_EXCEEDED",
-      };
-    }
+      // 2. Contrôle du plafond hebdomadaire (48h max)
+      const weeklyHoursCheck = validateWeeklyHours(
+        existingShifts,
+        { startTime: validated.startTime, endTime: validated.endTime }
+      );
+      if (!weeklyHoursCheck.isValid) {
+        return {
+          success: false,
+          error: `Dépassement du plafond hebdomadaire légal de 48h (cumul projeté : ${weeklyHoursCheck.totalHours}h).`,
+          code: "WEEKLY_HOURS_EXCEEDED",
+        };
+      }
 
-    // 3. Contrôle du repos hebdomadaire (2 jours de repos / max 5 jours consécutifs)
-    const weeklyRestCheck = validateWeeklyRestDays(
-      combinedShifts,
-      validated.startTime
-    );
-    if (!weeklyRestCheck.isValid) {
-      return {
-        success: false,
-        error: "Non-respect du repos hebdomadaire obligatoire (minimum 2 jours de repos par semaine civile).",
-        code: "WEEKLY_REST_VIOLATION",
-      };
-    }
+      // 3. Contrôle du repos hebdomadaire (2 jours de repos / max 5 jours consécutifs)
+      const weeklyRestCheck = validateWeeklyRestDays(
+        combinedShifts,
+        validated.startTime
+      );
+      if (!weeklyRestCheck.isValid || !validateWeeklyRestDays(combinedShifts, validated.endTime).isValid) {
+        return {
+          success: false,
+          error: "Non-respect du repos hebdomadaire obligatoire (minimum 2 jours de repos par semaine civile).",
+          code: "WEEKLY_REST_VIOLATION",
+        };
+      }
 
-    const consecutiveDaysCheck = validateMaxConsecutiveWorkedDays(combinedShifts);
-    if (!consecutiveDaysCheck.isValid) {
-      return {
-        success: false,
-        error: `Interdiction de planifier plus de 5 jours consécutifs travaillés (${consecutiveDaysCheck.maxConsecutiveFound} jours trouvés).`,
-        code: "CONSECUTIVE_DAYS_VIOLATION",
-      };
-    }
+      const consecutiveDaysCheck = validateMaxConsecutiveWorkedDays(combinedShifts);
+      if (!consecutiveDaysCheck.isValid) {
+        return {
+          success: false,
+          error: `Interdiction de planifier plus de 5 jours consécutifs travaillés (${consecutiveDaysCheck.maxConsecutiveFound} jours trouvés).`,
+          code: "CONSECUTIVE_DAYS_VIOLATION",
+        };
+      }
 
-    // 4. Délai de prévenance (8 jours calendaires)
-    const noticeCheck = checkNoticePeriod(validated.startTime, new Date());
-    const isLate = noticeCheck.requiresDerogation;
-    const finalStatus = isLate ? "EN_ATTENTE_DEROGATION" : validated.status;
+      // 4. Délai de prévenance (8 jours calendaires)
+      const noticeCheck = checkNoticePeriod(validated.startTime, new Date());
+      const isLate = noticeCheck.requiresDerogation;
+      const finalStatus = isLate ? "EN_ATTENTE_DEROGATION" : validated.status;
 
-    // Transaction atomique création Shift + AuditLog
-    const result = await prisma.$transaction(async (tx) => {
+      // Transaction atomique création Shift + AuditLog
       const shift = await tx.shift.create({
         data: {
           userId: validated.userId,
@@ -123,15 +131,14 @@ export async function createShift(input: ShiftInput): Promise<ActionResult> {
           tableName: "Shift",
           recordId: shift.id,
           userId: actor.id,
-          payloadNew: shift as unknown as Prisma.InputJsonValue,
+          payloadOld: Prisma.JsonNull,
+          payloadNew: JSON.parse(JSON.stringify(shift)) as Prisma.InputJsonValue,
           timestamp: new Date(),
         },
       });
 
-      return shift;
+      return { success: true, data: shift };
     });
-
-    return { success: true, data: result };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Erreur inconnue";
     return { success: false, error: message };
@@ -177,8 +184,7 @@ export async function applyMasterTemplate(startDate: Date): Promise<ActionResult
     }
 
     const createdShifts: ShiftInput[] = [];
-    const baseDate = new Date(startDate);
-    baseDate.setHours(0, 0, 0, 0);
+    const baseDate = toAppTime(new Date(startDate));
 
     for (const template of templates) {
       // Calcul du jour cible (semaine 1 = offset 0 à 6 jours, semaine 2 = offset 7 à 13 jours)
@@ -186,47 +192,65 @@ export async function applyMasterTemplate(startDate: Date): Promise<ActionResult
       // dayOfWeek : 1 (Lundi) -> 7 (Dimanche) => offset = dayOfWeek - 1
       const dayOffset = weekOffset + (template.dayOfWeek - 1);
 
-      const targetDay = new Date(baseDate);
-      targetDay.setDate(targetDay.getDate() + dayOffset);
-
-      const [startH, startM] = template.startTime.split(":").map(Number);
-      const [endH, endM] = template.endTime.split(":").map(Number);
-
-      const shiftStart = new Date(targetDay);
-      shiftStart.setHours(startH, startM, 0, 0);
-
-      const shiftEnd = new Date(targetDay);
-      shiftEnd.setHours(endH, endM, 0, 0);
-      if (shiftEnd <= shiftStart) {
-        shiftEnd.setDate(shiftEnd.getDate() + 1);
-      }
+      const { startTime: shiftStart, endTime: shiftEnd } = shiftDatesForDay(
+        format(addDays(baseDate, dayOffset), "yyyy-MM-dd"), template.startTime, template.endTime
+      );
 
       // Associer au premier salarié disponible ou filtré selon roleTarget
       const eligibleEmployee = employees.find((e) => e.role === template.roleTarget) ?? employees[0];
 
-      createdShifts.push({
+      createdShifts.push(ShiftSchema.parse({
         userId: eligibleEmployee.id,
         startTime: shiftStart,
         endTime: shiftEnd,
         status: "BROUILLON",
         isLateModification: false,
         planningVersion: 1,
-      });
+      }));
     }
 
     const created = await prisma.$transaction(async (tx) => {
+      for (const userId of [...new Set(createdShifts.map((item) => item.userId))].sort()) {
+        await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+      }
       const results = [];
       for (const item of createdShifts) {
+        const existing = await tx.shift.findMany({
+          where: { userId: item.userId, status: { not: "ANNULE" } },
+          select: { id: true, startTime: true, endTime: true },
+        });
+        const combined = [...existing, item];
+        const rest = validateConsecutiveShiftsDailyRest(combined);
+        if (!rest.isValid) throw new Error(dailyViolation(rest.reason).error);
+        if (!validateWeeklyHours(existing, item).isValid) throw new Error("Dépassement du plafond hebdomadaire légal de 48h.");
+        if (!validateWeeklyRestDays(combined, item.startTime).isValid ||
+            !validateWeeklyRestDays(combined, item.endTime).isValid ||
+            !validateMaxConsecutiveWorkedDays(combined).isValid) {
+          throw new Error("Non-respect du repos hebdomadaire obligatoire.");
+        }
+        const isLate = checkNoticePeriod(item.startTime).requiresDerogation;
         const shift = await tx.shift.create({
           data: {
             userId: item.userId,
             startTime: item.startTime,
             endTime: item.endTime,
-            status: "BROUILLON",
+            status: isLate ? "EN_ATTENTE_DEROGATION" : "BROUILLON",
+            isLateModification: isLate,
+            derogationRequestedAt: isLate ? new Date() : null,
             planningVersion: 1,
           },
         });
         results.push(shift);
+        await tx.auditLog.create({
+          data: {
+            action: "SHIFT_CREATED",
+            tableName: "Shift",
+            recordId: shift.id,
+            userId: actor.id,
+            payloadOld: Prisma.JsonNull,
+            payloadNew: JSON.parse(JSON.stringify(shift)) as Prisma.InputJsonValue,
+          },
+        });
       }
 
       await tx.auditLog.create({
@@ -345,86 +369,89 @@ export async function updateShift(
   try {
     const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
 
-    const currentShift = await prisma.shift.findUnique({
-      where: { id: shiftId },
-    });
+    return await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Shift" WHERE id = ${shiftId} FOR UPDATE`;
+      const currentShift = await tx.shift.findUnique({
+        where: { id: shiftId },
+      });
 
-    if (!currentShift) {
-      return { success: false, error: "Shift introuvable", code: "NOT_FOUND" };
-    }
+      if (!currentShift) {
+        return { success: false, error: "Shift introuvable", code: "NOT_FOUND" };
+      }
 
-    const updatedData = {
-      userId: input.userId ?? currentShift.userId,
-      startTime: input.startTime ?? currentShift.startTime,
-      endTime: input.endTime ?? currentShift.endTime,
-      planningVersion: (currentShift.planningVersion || 1) + 1,
-    };
-
-    const validated = ShiftSchema.parse(updatedData);
-
-    // Shifts existants hors celui modifié
-    const otherShifts = await prisma.shift.findMany({
-      where: {
-        userId: validated.userId,
-        id: { not: shiftId },
-        status: { not: "ANNULE" },
-      },
-      select: { id: true, startTime: true, endTime: true },
-    });
-
-    const combinedShifts = [
-      ...otherShifts,
-      { startTime: validated.startTime, endTime: validated.endTime },
-    ];
-
-    const dailyRestCheck = validateConsecutiveShiftsDailyRest(combinedShifts);
-    if (!dailyRestCheck.isValid) {
-      return {
-        success: false,
-        error: "Non-respect du repos quotidien légal (11h consécutives obligatoires).",
-        code: "DAILY_REST_VIOLATION",
+      const updatedData = {
+        userId: input.userId ?? currentShift.userId,
+        startTime: input.startTime ?? currentShift.startTime,
+        endTime: input.endTime ?? currentShift.endTime,
+        planningVersion: (currentShift.planningVersion || 1) + 1,
       };
-    }
 
-    const weeklyHoursCheck = validateWeeklyHours(otherShifts, {
-      startTime: validated.startTime,
-      endTime: validated.endTime,
-    });
-    if (!weeklyHoursCheck.isValid) {
-      return {
-        success: false,
-        error: `Dépassement du plafond hebdomadaire légal de 48h (${weeklyHoursCheck.totalHours}h).`,
-        code: "WEEKLY_HOURS_EXCEEDED",
-      };
-    }
+      const validated = ShiftSchema.parse(updatedData);
+      for (const userId of [...new Set([currentShift.userId, validated.userId])].sort()) {
+        await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+      }
 
-    const weeklyRestCheck = validateWeeklyRestDays(
-      combinedShifts,
-      validated.startTime
-    );
-    if (!weeklyRestCheck.isValid) {
-      return {
-        success: false,
-        error: "Non-respect du repos hebdomadaire obligatoire.",
-        code: "WEEKLY_REST_VIOLATION",
-      };
-    }
+      // Shifts existants hors celui modifié
+      const otherShifts = await tx.shift.findMany({
+        where: {
+          userId: validated.userId,
+          id: { not: shiftId },
+          status: { not: "ANNULE" },
+        },
+        select: { id: true, startTime: true, endTime: true },
+      });
 
-    const consecutiveDaysCheck = validateMaxConsecutiveWorkedDays(combinedShifts);
-    if (!consecutiveDaysCheck.isValid) {
-      return {
-        success: false,
-        error: "Plus de 5 jours consécutifs travaillés.",
-        code: "CONSECUTIVE_DAYS_VIOLATION",
-      };
-    }
+      const combinedShifts = [
+        ...otherShifts,
+        { startTime: validated.startTime, endTime: validated.endTime },
+      ];
 
-    // Délai de prévenance recalculé à la modification
-    const noticeCheck = checkNoticePeriod(validated.startTime, new Date());
-    const isLate = noticeCheck.requiresDerogation;
-    const finalStatus = isLate ? "EN_ATTENTE_DEROGATION" : currentShift.status;
+      const dailyRestCheck = validateConsecutiveShiftsDailyRest(combinedShifts);
+      if (!dailyRestCheck.isValid) {
+        return {
+          success: false,
+          ...dailyViolation(dailyRestCheck.reason),
+        };
+      }
 
-    const result = await prisma.$transaction(async (tx) => {
+      const weeklyHoursCheck = validateWeeklyHours(otherShifts, {
+        startTime: validated.startTime,
+        endTime: validated.endTime,
+      });
+      if (!weeklyHoursCheck.isValid) {
+        return {
+          success: false,
+          error: `Dépassement du plafond hebdomadaire légal de 48h (${weeklyHoursCheck.totalHours}h).`,
+          code: "WEEKLY_HOURS_EXCEEDED",
+        };
+      }
+
+      const weeklyRestCheck = validateWeeklyRestDays(
+        combinedShifts,
+        validated.startTime
+      );
+      if (!weeklyRestCheck.isValid || !validateWeeklyRestDays(combinedShifts, validated.endTime).isValid) {
+        return {
+          success: false,
+          error: "Non-respect du repos hebdomadaire obligatoire.",
+          code: "WEEKLY_REST_VIOLATION",
+        };
+      }
+
+      const consecutiveDaysCheck = validateMaxConsecutiveWorkedDays(combinedShifts);
+      if (!consecutiveDaysCheck.isValid) {
+        return {
+          success: false,
+          error: "Plus de 5 jours consécutifs travaillés.",
+          code: "CONSECUTIVE_DAYS_VIOLATION",
+        };
+      }
+
+      // Délai de prévenance recalculé à la modification
+      const noticeCheck = checkNoticePeriod(validated.startTime, new Date());
+      const isLate = noticeCheck.requiresDerogation;
+      const finalStatus = isLate ? "EN_ATTENTE_DEROGATION" : currentShift.status;
+
       const updated = await tx.shift.update({
         where: { id: shiftId },
         data: {
@@ -451,13 +478,47 @@ export async function updateShift(
         },
       });
 
-      return updated;
+      return { success: true, data: updated };
     });
-
-    return { success: true, data: result };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Erreur inconnue";
     return { success: false, error: message };
+  }
+}
+
+export async function deleteShift(shiftId: string): Promise<ActionResult> {
+  try {
+    const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
+    if (!shiftId) return { success: false, error: "L'identifiant du shift est requis." };
+    return await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Shift" WHERE id = ${shiftId} FOR UPDATE`;
+      const shift = await tx.shift.findUnique({
+        where: { id: shiftId },
+        include: { _count: { select: { timeEntries: true, shiftSwaps: true } } },
+      });
+      if (!shift) return { success: false, error: "Shift introuvable", code: "NOT_FOUND" };
+      if (shift._count.timeEntries > 0) {
+        return { success: false, error: "Impossible de supprimer un shift associé à un pointage.", code: "HAS_TIME_ENTRIES" };
+      }
+      if (shift._count.shiftSwaps > 0) {
+        return { success: false, error: "Impossible de supprimer un shift associé à une demande d'échange.", code: "HAS_SWAPS" };
+      }
+      const oldShift = await tx.shift.findUniqueOrThrow({ where: { id: shiftId } });
+      await tx.shift.delete({ where: { id: shiftId } });
+      await tx.auditLog.create({
+        data: {
+          action: "SHIFT_DELETED",
+          tableName: "Shift",
+          recordId: shiftId,
+          userId: actor.id,
+          payloadOld: JSON.parse(JSON.stringify(oldShift)) as Prisma.InputJsonValue,
+          payloadNew: Prisma.JsonNull,
+        },
+      });
+      return { success: true, data: { id: shiftId } };
+    });
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
   }
 }
 

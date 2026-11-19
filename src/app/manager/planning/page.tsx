@@ -31,6 +31,10 @@ export default async function ManagerPlanningPage() {
     },
     orderBy: { startTime: "asc" },
   });
+  const templates = await prisma.masterTemplate.findMany({
+    where: { isActive: true },
+    orderBy: [{ weekNumber: "asc" }, { dayOfWeek: "asc" }, { startTime: "asc" }],
+  });
 
   const formattedEmployees = employees.map((e) => ({
     id: e.id,
@@ -42,6 +46,7 @@ export default async function ManagerPlanningPage() {
   return (
     <PlanningQuinzaineView
       employees={formattedEmployees}
+      initialTemplates={templates}
       initialShifts={shifts.map((s) => ({
         ...s,
         startTime: s.startTime.toISOString(),
