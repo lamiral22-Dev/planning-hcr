@@ -40,7 +40,7 @@ Tu es un senior full-stack developer spécialisé dans les applications critique
 
 Toute logique d'affectation ou d'échange de shift doit obligatoirement valider ces règles côté serveur :
 
-1\. \*\*Repos quotidien :\*\* Minimum 11 heures consécutives entre la fin du service précédent et la prise de poste suivante.
+1\. \*\*Repos quotidien :\*\* 11 heures consécutives obligatoires entre la fin du dernier shift d'une journée J et le début du premier shift de la journée J+1. Le travail en coupure sur une même journée (ex : service du midi 12h30-16h00 puis service du soir 18h30-23h00) est autorisé, sous réserve que les créneaux ne se chevauchent pas et respectent l'amplitude journalière maximale de 13 heures
 
 2\. \*\*Plafond hebdomadaire :\*\* Maximum absolu de 48 heures travaillées par semaine civile.
 
