@@ -16,6 +16,7 @@ interface PlanningQuinzaineViewProps {
   employees: PlanningEmployee[];
   isLoading?: boolean;
   initialTemplates?: MasterTemplateItem[];
+  readOnly?: boolean;
 }
 
 export function PlanningQuinzaineView({
@@ -23,6 +24,7 @@ export function PlanningQuinzaineView({
   employees,
   isLoading = false,
   initialTemplates = [],
+  readOnly = false,
 }: PlanningQuinzaineViewProps) {
   // Navigation de la quinzaine (commence le lundi)
   const [startDate, setStartDate] = useState<Date>(() => {
@@ -158,7 +160,7 @@ export function PlanningQuinzaineView({
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-            Planning Quinzaine
+            {readOnly ? "Consultation Planning Salarié" : "Planning Quinzaine"}
           </h1>
           <p className="text-sm text-slate-500">
             Période du {format(startDate, "dd MMMM yyyy", { locale: fr })} au{" "}
@@ -183,7 +185,7 @@ export function PlanningQuinzaineView({
       </div>
 
       {/* Barre d'outils d'action */}
-      <PlanningToolbar
+      {!readOnly && <PlanningToolbar
         startDate={startDate}
         endDate={endDate}
         onOpenCreateModal={handleOpenCreateModal}
@@ -191,7 +193,7 @@ export function PlanningQuinzaineView({
           // Rechargement simple
           window.location.reload();
         }}
-      />
+      />}
 
       {placementMessage && <div role="status" className="rounded border border-slate-200 bg-white p-3 text-sm">{placementMessage}</div>}
       {/* Table quinzaine ou Empty State */}
@@ -214,6 +216,7 @@ export function PlanningQuinzaineView({
           onAddTemplate={() => setIsTemplateModalOpen(true)}
           onPlaceTemplate={handlePlaceTemplate}
           isPlacing={isPlacing}
+          readOnly={readOnly}
         />
       )}
 

@@ -6,6 +6,7 @@ import {
   acknowledgeShift,
   acceptDerogation,
   deleteShift,
+  publishQuinzaine,
 } from "@/actions/shift-actions";
 import { prisma } from "@/lib/prisma";
 import * as auth from "@/lib/auth";
@@ -33,6 +34,42 @@ vi.mock("@/lib/prisma", () => ({
 describe("shift-actions.ts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe("Publication", () => {
+    it("trace chaque changement et ignore un brouillon modifié entre la sélection et le verrou", async () => {
+      vi.spyOn(auth, "requireUserWithRoles").mockResolvedValue({
+        id: "manager", email: "manager@test.com", role: "MANAGER", firstName: "M", lastName: "M",
+      });
+      const start = new Date(Date.now() + 30 * 86400000);
+      const end = new Date(start.getTime() + 7 * 86400000);
+      const draft = { id: "a", startTime: start, status: "BROUILLON", planningVersion: 1 };
+      vi.mocked(prisma.shift.findMany).mockResolvedValue([{ id: "a" }, { id: "b" }] as any);
+      vi.mocked(prisma.shift.findUnique)
+        .mockResolvedValueOnce(draft as any)
+        .mockResolvedValueOnce({ ...draft, id: "b", status: "PUBLIE" } as any);
+      vi.mocked(prisma.shift.update).mockResolvedValue({ ...draft, status: "PUBLIE", planningVersion: 2 } as any);
+
+      expect(await publishQuinzaine(start, end)).toMatchObject({
+        success: true, data: { publishedCount: 1, derogationCount: 0 },
+      });
+      expect(prisma.shift.update).toHaveBeenCalledTimes(1);
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          action: "SHIFT_PUBLISHED", recordId: "a",
+          payloadOld: expect.objectContaining({ status: "BROUILLON" }),
+          payloadNew: expect.objectContaining({ status: "PUBLIE" }),
+        }),
+      }));
+    });
+
+    it("refuse une période invalide sans modifier de shift", async () => {
+      vi.spyOn(auth, "requireUserWithRoles").mockResolvedValue({
+        id: "manager", email: "manager@test.com", role: "MANAGER", firstName: "M", lastName: "M",
+      });
+      expect((await publishQuinzaine(new Date("2026-02-02"), new Date("2026-02-01"))).success).toBe(false);
+      expect(prisma.shift.update).not.toHaveBeenCalled();
+    });
   });
 
   describe("Suppression d'un shift", () => {

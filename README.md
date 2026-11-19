@@ -37,4 +37,6 @@ Application web conçue pour l'hôtellerie-restauration, optimisant l'organisati
 
 Dans `/manager/planning`, ajouter un créneau type, puis l'affecter par glisser-déposer et par sélection suivie d'un clic sur une cellule. Vérifier les alertes HCR et la dérogation à moins de 8 jours. Essayer une coupure, un chevauchement, une amplitude supérieure à 13 h et une fermeture de nuit. Enfin, ouvrir un shift pour le supprimer ; la suppression doit être refusée lorsqu'un pointage ou une demande d'échange y est associé.
 
+Dans `/manager/planning-salarie`, vérifier que la navigation par quinzaine fonctionne sans commande de modification. Publier une quinzaine depuis le planning et vérifier dans le registre d'audit les états avant et après de chaque shift publié. Les exports paie sont accessibles sous `/manager/paie` ; l'ancienne adresse `/manager/exports` reste disponible.
+
 Attention : `npm run build` exécute `prisma db push --accept-data-loss` sur la base désignée par `DATABASE_URL` ; utiliser une base dédiée pour les vérifications.

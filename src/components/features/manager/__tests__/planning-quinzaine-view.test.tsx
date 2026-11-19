@@ -28,6 +28,13 @@ describe("PlanningQuinzaineView", () => {
     expect(screen.getByText(/Aucun salarié enregistré dans l'établissement/i)).toBeDefined();
   });
 
+  it("affiche la quinzaine en consultation sans commandes de modification", () => {
+    render(<PlanningQuinzaineView readOnly employees={mockEmployees} initialShifts={[]} />);
+    expect(screen.getByRole("heading", { name: "Consultation Planning Salarié" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /Créer un shift|Publier la quinzaine|Ajouter un créneau/ })).toBeNull();
+    expect(screen.queryByTitle("Ajouter un shift")).toBeNull();
+  });
+
   it("affiche les collaborateurs et les shifts avec leurs badges", () => {
     const shifts = [
       {
