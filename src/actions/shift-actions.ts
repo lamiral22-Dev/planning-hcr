@@ -116,6 +116,7 @@ export async function createShift(input: ShiftInput): Promise<ActionResult<Shift
       const shift = await tx.shift.create({
         data: {
           userId: validated.userId,
+          slotId: validated.slotId ?? null,
           startTime: validated.startTime,
           endTime: validated.endTime,
           status: finalStatus,
@@ -390,6 +391,7 @@ export async function updateShift(
 
       const updatedData = {
         userId: input.userId ?? currentShift.userId,
+        slotId: input.slotId ?? currentShift.slotId,
         startTime: input.startTime ?? currentShift.startTime,
         endTime: input.endTime ?? currentShift.endTime,
         planningVersion: (currentShift.planningVersion || 1) + 1,
@@ -467,6 +469,7 @@ export async function updateShift(
           startTime: validated.startTime,
           endTime: validated.endTime,
           userId: validated.userId,
+          slotId: validated.slotId ?? null,
           status: finalStatus,
           isLateModification: isLate,
           derogationRequestedAt: isLate ? new Date() : null,
@@ -503,7 +506,7 @@ export async function deleteShift(shiftId: string): Promise<ActionResult> {
       await tx.$queryRaw`SELECT id FROM "Shift" WHERE id = ${shiftId} FOR UPDATE`;
       const shift = await tx.shift.findUnique({
         where: { id: shiftId },
-        include: { _count: { select: { timeEntries: true, shiftSwaps: true } } },
+        include: { _count: { select: { timeEntries: true, shiftSwaps: true, replacementRequests: true } } },
       });
       if (!shift) return { success: false, error: "Shift introuvable", code: "NOT_FOUND" };
       if (shift._count.timeEntries > 0) {
@@ -511,6 +514,9 @@ export async function deleteShift(shiftId: string): Promise<ActionResult> {
       }
       if (shift._count.shiftSwaps > 0) {
         return { success: false, error: "Impossible de supprimer un shift associé à une demande d'échange.", code: "HAS_SWAPS" };
+      }
+      if (shift._count.replacementRequests > 0) {
+        return { success: false, error: "Impossible de supprimer un shift associé à une demande de remplacement.", code: "HAS_REPLACEMENT_REQUESTS" };
       }
       const oldShift = await tx.shift.findUniqueOrThrow({ where: { id: shiftId } });
       await tx.shift.delete({ where: { id: shiftId } });

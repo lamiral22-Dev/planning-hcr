@@ -2,6 +2,61 @@ generator client {
   provider = "prisma-client-js"
 }
 
+model RestaurantSlot {
+  id         String   @id @default(cuid())
+  name       String
+  startTime  String
+  endTime    String
+  sortOrder  Int      @default(0)
+  closedDays Int[]    @default([])
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  shifts   Shift[]
+  closures RestaurantClosure[]
+
+  @@index([isActive, sortOrder])
+}
+
+model RestaurantClosure {
+  id        String   @id @default(cuid())
+  slotId    String
+  date      DateTime @db.Date
+  isClosed  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  slot RestaurantSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+
+  @@unique([slotId, date])
+  @@index([date])
+}
+
+enum ReplacementStatus {
+  EN_ATTENTE
+  ACCEPTEE
+  REFUSEE
+  ANNULEE
+}
+
+model ShiftReplacementRequest {
+  id             String            @id @default(cuid())
+  shiftId        String
+  proposedUserId String
+  requestedById  String
+  status         ReplacementStatus @default(EN_ATTENTE)
+  respondedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  shift        Shift @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  proposedUser User  @relation("ReplacementProposedUser", fields: [proposedUserId], references: [id], onDelete: Cascade)
+  requestedBy  User  @relation("ReplacementRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+
+  @@index([shiftId, status])
+  @@index([proposedUserId, status])
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -37,64 +92,70 @@ enum QualificationStatus {
 }
 
 model User {
-  id                  String       @id @default(cuid())
-  matricule           String       @unique
-  email               String       @unique
+  id                  String   @id @default(cuid())
+  matricule           String   @unique
+  email               String   @unique
   passwordHash        String
   firstName           String
   lastName            String
-  role                Role         @default(SALARIE)
-  contractWeeklyHours Float        @default(35.0)
-  isActive            Boolean      @default(true)
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
+  role                Role     @default(SALARIE)
+  contractWeeklyHours Float    @default(35.0)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  shifts              Shift[]      @relation("UserShifts")
-  timeEntries         TimeEntry[]  @relation("UserTimeEntries")
-  arbitratedEntries   TimeEntry[]  @relation("ManagerArbitrations")
-  swapRequestsSent    ShiftSwap[]  @relation("SwapRequester")
-  swapRequestsRecv    ShiftSwap[]  @relation("SwapTarget")
-  auditLogs           AuditLog[]
+  shifts                Shift[]                   @relation("UserShifts")
+  timeEntries           TimeEntry[]               @relation("UserTimeEntries")
+  arbitratedEntries     TimeEntry[]               @relation("ManagerArbitrations")
+  swapRequestsSent      ShiftSwap[]               @relation("SwapRequester")
+  swapRequestsRecv      ShiftSwap[]               @relation("SwapTarget")
+  auditLogs             AuditLog[]
+  replacementRequests   ShiftReplacementRequest[] @relation("ReplacementProposedUser")
+  initiatedReplacements ShiftReplacementRequest[] @relation("ReplacementRequestedBy")
 
   @@index([role])
   @@index([isActive])
 }
 
 model Shift {
-  id                    String       @id @default(cuid())
-  userId                String
-  startTime             DateTime
-  endTime               DateTime
-  status                ShiftStatus  @default(BROUILLON)
+  id        String      @id @default(cuid())
+  userId    String
+  slotId    String?
+  startTime DateTime
+  endTime   DateTime
+  status    ShiftStatus @default(BROUILLON)
 
   acknowledgedAt        DateTime?
-  isLateModification    Boolean      @default(false)
+  isLateModification    Boolean   @default(false)
   derogationRequestedAt DateTime?
   derogationAcceptedAt  DateTime?
   derogationComment     String?
 
-  planningVersion       Int          @default(1)
+  planningVersion Int @default(1)
 
-  createdAt             DateTime     @default(now())
-  updatedAt             DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user                  User         @relation("UserShifts", fields: [userId], references: [id], onDelete: Cascade)
-  timeEntries           TimeEntry[]
-  shiftSwaps            ShiftSwap[]
+  user                User                      @relation("UserShifts", fields: [userId], references: [id], onDelete: Cascade)
+  slot                RestaurantSlot?           @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  timeEntries         TimeEntry[]
+  shiftSwaps          ShiftSwap[]
+  replacementRequests ShiftReplacementRequest[]
 
   @@index([userId, startTime])
+  @@index([slotId, startTime])
   @@index([startTime, endTime])
   @@index([status])
 }
 
 model TimeEntry {
-  id                    String              @id @default(cuid())
-  shiftId               String?
-  userId                String
+  id      String  @id @default(cuid())
+  shiftId String?
+  userId  String
 
-  clockInTime           DateTime
-  rawClockOutTime       DateTime?
-  roundedClockOutTime   DateTime?
+  clockInTime         DateTime
+  rawClockOutTime     DateTime?
+  roundedClockOutTime DateTime?
 
   correctedClockInTime  DateTime?
   correctedClockOutTime DateTime?
@@ -104,12 +165,12 @@ model TimeEntry {
   managerId             String?
   arbitratedAt          DateTime?
 
-  createdAt             DateTime            @default(now())
-  updatedAt             DateTime            @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  shift                 Shift?              @relation(fields: [shiftId], references: [id], onDelete: SetNull)
-  user                  User                @relation("UserTimeEntries", fields: [userId], references: [id], onDelete: Cascade)
-  manager               User?               @relation("ManagerArbitrations", fields: [managerId], references: [id])
+  shift   Shift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  user    User   @relation("UserTimeEntries", fields: [userId], references: [id], onDelete: Cascade)
+  manager User?  @relation("ManagerArbitrations", fields: [managerId], references: [id])
 
   @@index([userId, clockInTime])
   @@index([shiftId])
@@ -117,23 +178,23 @@ model TimeEntry {
 }
 
 model ShiftSwap {
-  id                String     @id @default(cuid())
-  shiftId           String
-  requesterId       String
-  targetUserId      String
-  status            SwapStatus @default(EN_ATTENTE_EQUIPIER)
+  id           String     @id @default(cuid())
+  shiftId      String
+  requesterId  String
+  targetUserId String
+  status       SwapStatus @default(EN_ATTENTE_EQUIPIER)
 
   reason            String?
   peerApprovedAt    DateTime?
   managerApprovedAt DateTime?
   rejectedReason    String?
 
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  shift             Shift      @relation(fields: [shiftId], references: [id], onDelete: Cascade)
-  requester         User       @relation("SwapRequester", fields: [requesterId], references: [id], onDelete: Cascade)
-  targetUser        User       @relation("SwapTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  shift      Shift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  requester  User  @relation("SwapRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  targetUser User  @relation("SwapTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
 
   @@index([requesterId])
   @@index([targetUserId])
@@ -141,16 +202,16 @@ model ShiftSwap {
 }
 
 model AuditLog {
-  id        String   @id @default(cuid())
-  action    String
-  tableName String
-  recordId  String
-  userId    String?
+  id         String   @id @default(cuid())
+  action     String
+  tableName  String
+  recordId   String
+  userId     String?
   payloadOld Json?
   payloadNew Json?
-  timestamp DateTime @default(now())
+  timestamp  DateTime @default(now())
 
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([tableName, recordId])
   @@index([timestamp])
@@ -158,25 +219,25 @@ model AuditLog {
 }
 
 model MasterTemplate {
-  id         String   @id @default(cuid())
+  id         String  @id @default(cuid())
   name       String
-  weekNumber Int      @default(1)
+  weekNumber Int     @default(1)
   dayOfWeek  Int
   startTime  String
   endTime    String
-  roleTarget Role     @default(SALARIE)
-  isActive   Boolean  @default(true)
+  roleTarget Role    @default(SALARIE)
+  isActive   Boolean @default(true)
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([weekNumber, dayOfWeek, isActive])
 }
 
 model CompanySettings {
-  id                 String @id @default("default")
-  noticeDelayDays    Int    @default(8)
-  roundingMinutes    Int    @default(15)
-  maxWeeklyHours     Float  @default(48.0)
-  minDailyRestHours  Float  @default(11.0)
+  id                String @id @default("default")
+  noticeDelayDays   Int    @default(8)
+  roundingMinutes   Int    @default(15)
+  maxWeeklyHours    Float  @default(48.0)
+  minDailyRestHours Float  @default(11.0)
 }

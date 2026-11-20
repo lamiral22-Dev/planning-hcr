@@ -28,6 +28,7 @@ export const ShiftSchema = z
   .object({
     id: z.string().optional(),
     userId: z.string().min(1, "L'identifiant salarié est requis"),
+    slotId: z.string().min(1).nullable().optional(),
     startTime: z.coerce.date(),
     endTime: z.coerce.date(),
     status: ShiftStatusEnum.default("BROUILLON"),

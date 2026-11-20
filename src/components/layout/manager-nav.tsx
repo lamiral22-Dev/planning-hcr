@@ -10,7 +10,7 @@ interface NavLinkItem {
 }
 
 const navItems: NavLinkItem[] = [
-  { href: "/manager/planning", label: "Planning Quinzaine" },
+  { href: "/manager/planning", label: "Planning Restaurant" },
   { href: "/manager/planning-salarie", label: "Consultation Planning Salarié" },
   { href: "/manager/arbitrage", label: "Arbitrage & Bourse" },
   { href: "/manager/paie", label: "Exports Paie" },

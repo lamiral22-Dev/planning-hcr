@@ -10,6 +10,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { acknowledgeShift, acceptDerogation } from "@/actions/shift-actions";
+import { respondToReplacementRequest } from "@/actions/restaurant-planning-actions";
 
 export interface SalarieShiftData {
   id: string;
@@ -28,6 +29,7 @@ export interface SalariePlanningViewProps {
   activeClockInTime?: Date | null;
   isLoading?: boolean;
   onRefresh?: () => void;
+  replacementRequests?: { id: string; proposedEmployee: string; startTime: Date; endTime: Date }[];
 }
 
 export function SalariePlanningView({
@@ -36,12 +38,14 @@ export function SalariePlanningView({
   activeClockInTime,
   isLoading,
   onRefresh,
+  replacementRequests = [],
 }: SalariePlanningViewProps) {
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Gestion du modal de dérogation
   const [derogationTargetShift, setDerogationTargetShift] = useState<SalarieShiftData | null>(null);
+  const [replacementQueue, setReplacementQueue] = useState(replacementRequests);
 
   // Recherche du shift en cours ou du prochain shift pour le widget de pointage
   const now = new Date();
@@ -103,6 +107,25 @@ export function SalariePlanningView({
     });
   };
 
+  const handleReplacementResponse = (requestId: string, accepted: boolean) => {
+    setFeedback(null);
+    startTransition(async () => {
+      const result = await respondToReplacementRequest(requestId, accepted);
+      if (result.success) {
+        setReplacementQueue((current) => current.filter((request) => request.id !== requestId));
+        setFeedback({
+          type: "success",
+          text: accepted
+            ? "Remplacement accepté. La nouvelle affectation reste soumise à votre accord dérogatoire."
+            : "Remplacement refusé. Votre affectation est conservée.",
+        });
+        onRefresh?.();
+      } else {
+        setFeedback({ type: "error", text: result.error });
+      }
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="flex flex-col gap-4 p-4 max-w-lg mx-auto">
@@ -159,6 +182,19 @@ export function SalariePlanningView({
           {feedback.text}
         </AlertBanner>
       )}
+
+      {replacementQueue.map((request) => (
+        <AlertBanner key={request.id} variant="warning" title="Accord préalable requis pour un remplacement">
+          <p className="mb-3 text-sm">
+            Le créneau du {new Date(request.startTime).toLocaleDateString("fr-FR")} vous est actuellement affecté.
+            Le manager propose {request.proposedEmployee} à votre place. Votre affectation reste inchangée tant que vous n&apos;avez pas répondu.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={isPending} onClick={() => handleReplacementResponse(request.id, true)}>Accepter le remplacement</Button>
+            <Button disabled={isPending} variant="outline" onClick={() => handleReplacementResponse(request.id, false)}>Refuser</Button>
+          </div>
+        </AlertBanner>
+      ))}
 
       {/* Bannière bloquante d'accord dérogatoire (J < 8) */}
       {pendingDerogationShifts.length > 0 && (

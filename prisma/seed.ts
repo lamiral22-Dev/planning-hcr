@@ -16,8 +16,11 @@ async function main() {
   await prisma.auditLog.deleteMany();
   await prisma.shiftSwap.deleteMany();
   await prisma.timeEntry.deleteMany();
+  await prisma.shiftReplacementRequest.deleteMany();
+  await prisma.restaurantClosure.deleteMany();
   await prisma.shift.deleteMany();
   await prisma.masterTemplate.deleteMany();
+  await prisma.restaurantSlot.deleteMany();
   await prisma.user.deleteMany();
 
   const defaultPasswordHash = hashPassword("password123");
@@ -63,6 +66,17 @@ async function main() {
   });
 
   console.log("👥 Utilisateurs créés : Manager, Thomas, Sarah");
+
+  await prisma.restaurantSlot.createMany({
+    data: [
+      { id: "slot-preparation", name: "Préparation", startTime: "08:00", endTime: "11:00", sortOrder: 0, closedDays: [6, 7] },
+      { id: "slot-midi-1", name: "Midi 1", startTime: "11:00", endTime: "15:00", sortOrder: 1 },
+      { id: "slot-midi-2", name: "Midi 2", startTime: "11:00", endTime: "15:00", sortOrder: 2 },
+      { id: "slot-soir-1", name: "Soir 1", startTime: "18:00", endTime: "22:00", sortOrder: 3 },
+      { id: "slot-soir-2", name: "Soir 2", startTime: "18:00", endTime: "22:00", sortOrder: 4 },
+      { id: "slot-admin", name: "Admin", startTime: "08:00", endTime: "11:00", sortOrder: 5, closedDays: [6, 7] },
+    ],
+  });
 
   const now = new Date();
 
