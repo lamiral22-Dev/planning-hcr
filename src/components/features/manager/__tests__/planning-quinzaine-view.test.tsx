@@ -105,6 +105,7 @@ describe("PlanningQuinzaineView", () => {
     vi.mocked(shiftActions.createShift).mockImplementation(async (input) => ({
       success: true, data: {
         ...input, id: `shift-${input.userId}`, createdAt: new Date(), updatedAt: new Date(),
+        slotId: input.slotId ?? null,
         acknowledgedAt: null, derogationRequestedAt: null, derogationAcceptedAt: null, derogationComment: null,
       },
     }));

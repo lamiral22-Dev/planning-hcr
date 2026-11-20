@@ -96,7 +96,7 @@ describe("shift-actions.ts", () => {
         id: "manager", email: "manager@test.com", role: "MANAGER", firstName: "M", lastName: "M",
       });
       vi.mocked(prisma.shift.findUnique).mockResolvedValue({
-        id: "shift-1", userId: "employee", _count: { timeEntries: 0, shiftSwaps: 0 },
+        id: "shift-1", userId: "employee", _count: { timeEntries: 0, shiftSwaps: 0, replacementRequests: 0 },
       } as any);
       vi.mocked(prisma.shift.findUniqueOrThrow).mockResolvedValue({ id: "shift-1", userId: "employee" } as any);
       expect((await deleteShift("shift-1")).success).toBe(true);
