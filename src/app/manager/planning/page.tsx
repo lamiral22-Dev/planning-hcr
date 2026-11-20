@@ -1,17 +1,24 @@
-import { addWeeks, startOfWeek } from "date-fns";
+import { addDays, format, isValid, parse, startOfMonth, startOfWeek, subDays } from "date-fns";
 import { prisma } from "@/lib/prisma";
 import { PlanningRestaurantView } from "@/components/features/manager/planning/planning-restaurant-view";
 import { fromAppTime, toAppTime } from "@/lib/time-utils";
 
 export const dynamic = "force-dynamic";
 
-export default async function ManagerPlanningPage() {
-  const currentWeek = startOfWeek(toAppTime(new Date()), { weekStartsOn: 1 });
-  const start = fromAppTime(addWeeks(currentWeek, -30));
-  const end = fromAppTime(addWeeks(currentWeek, 27));
+export default async function ManagerPlanningPage({ searchParams }: { searchParams: Promise<{ week?: string }> }) {
+  const { week } = await searchParams;
+  const parsed = week ? parse(week, "yyyy-MM-dd", new Date()) : null;
+  const selected = parsed && isValid(parsed) && format(parsed, "yyyy-MM-dd") === week
+    ? parsed : toAppTime(new Date());
+  const currentWeek = startOfWeek(selected, { weekStartsOn: 1 });
+  const sunday = addDays(currentWeek, 6);
+  const rangeStart = subDays(currentWeek, 7);
+  const monthStart = startOfMonth(sunday);
+  const start = fromAppTime(monthStart < rangeStart ? monthStart : rangeStart);
+  const end = fromAppTime(addDays(currentWeek, 14));
   const [employees, slots, shifts, closures] = await Promise.all([
     prisma.user.findMany({
-      where: { role: "SALARIE", isActive: true },
+      where: { role: { in: ["SALARIE", "MANAGER"] }, isActive: true },
       select: { id: true, firstName: true, lastName: true },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     }),
@@ -21,8 +28,8 @@ export default async function ManagerPlanningPage() {
     }),
     prisma.shift.findMany({
       where: {
-        slotId: { not: null },
-        startTime: { gte: start, lt: end },
+        startTime: { lt: end },
+        endTime: { gt: start },
         status: { not: "ANNULE" },
       },
       include: {
@@ -34,13 +41,14 @@ export default async function ManagerPlanningPage() {
       orderBy: { startTime: "asc" },
     }),
     prisma.restaurantClosure.findMany({
-      where: { date: { gte: new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate())), lt: new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate())) } },
+      where: { date: { gte: new Date(`${format(currentWeek, "yyyy-MM-dd")}T00:00:00Z`), lt: new Date(`${format(addDays(currentWeek, 7), "yyyy-MM-dd")}T00:00:00Z`) } },
       select: { slotId: true, date: true, isClosed: true },
     }),
   ]);
 
   return (
     <PlanningRestaurantView
+      weekStart={format(currentWeek, "yyyy-MM-dd")}
       employees={employees.map((employee) => ({
         id: employee.id,
         name: `${employee.firstName} ${employee.lastName}`,

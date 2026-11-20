@@ -68,8 +68,8 @@ export async function toggleRestaurantClosure(
       return { success: false, error: "Date ou créneau invalide." };
     }
     return await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`restaurant-slot:${slotId}`}, 0))`;
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${slotId}:${date}`}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`restaurant-slot:${slotId}`}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${slotId}:${date}`}, 0))`;
       await tx.$queryRaw`SELECT id FROM "RestaurantSlot" WHERE id = ${slotId} FOR UPDATE`;
       const closureDate = new Date(Date.UTC(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate()));
       const slot = await tx.restaurantSlot.findUnique({ where: { id: slotId } });
@@ -128,14 +128,14 @@ export async function assignRestaurantSlot(
     const nextDay = shiftDatesForDay(format(addDays(toAppTime(startOfDay), 1), "yyyy-MM-dd"), "00:00", "00:01").startTime;
 
     return await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`restaurant-slot:${slotId}`}, 0))`;
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${slotId}:${date}`}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`restaurant-slot:${slotId}`}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${slotId}:${date}`}, 0))`;
       await tx.$queryRaw`SELECT id FROM "RestaurantSlot" WHERE id = ${slotId} FOR UPDATE`;
       const slot = await tx.restaurantSlot.findUnique({ where: { id: slotId } });
       if (!slot?.isActive) return { success: false as const, error: "Ce créneau n'est plus actif." };
       const slotShift = shiftDatesForDay(date, slot.startTime, slot.endTime);
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
-      const employee = await tx.user.findFirst({ where: { id: userId, role: "SALARIE", isActive: true } });
+      const employee = await tx.user.findFirst({ where: { id: userId, role: { in: ["SALARIE", "MANAGER"] }, isActive: true } });
       if (!employee) return { success: false as const, error: "Salarié actif introuvable." };
       const closureDate = new Date(`${date}T12:00:00`);
       const closureKey = new Date(Date.UTC(closureDate.getFullYear(), closureDate.getMonth(), closureDate.getDate()));
@@ -387,7 +387,7 @@ export async function duplicateRestaurantWeek(
       const slots = await tx.restaurantSlot.findMany({ where: { isActive: true } });
       const slotById = new Map(slots.map((slot) => [slot.id, slot]));
       for (const slotId of slots.map((slot) => slot.id).sort()) {
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`restaurant-slot:${slotId}`}, 0))`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`restaurant-slot:${slotId}`}, 0))`;
       }
       let createdCount = 0;
       let skippedCount = 0;
@@ -407,7 +407,7 @@ export async function duplicateRestaurantWeek(
           const targetTimes = shiftDatesForDay(dayString, format(toAppTime(sourceShift.startTime), "HH:mm"), format(toAppTime(sourceShift.endTime), "HH:mm"));
           const targetDate = new Date(`${dayString}T12:00:00`);
           const closureDate = new Date(Date.UTC(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()));
-          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${slot.id}:${dayString}`}, 0))`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${slot.id}:${dayString}`}, 0))`;
           await tx.$queryRaw`SELECT id FROM "RestaurantSlot" WHERE id = ${slot.id} FOR UPDATE`;
           const currentSlot = await tx.restaurantSlot.findUnique({ where: { id: slot.id } });
           if (!currentSlot?.isActive) {
@@ -415,7 +415,7 @@ export async function duplicateRestaurantWeek(
             continue;
           }
           const employee = await tx.user.findFirst({
-            where: { id: sourceShift.userId, role: "SALARIE", isActive: true },
+            where: { id: sourceShift.userId, role: { in: ["SALARIE", "MANAGER"] }, isActive: true },
             select: { id: true },
           });
           if (!employee) {
@@ -494,7 +494,7 @@ export async function archiveRestaurantSlot(slotId: string): Promise<RestaurantA
   try {
     const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
     return await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`restaurant-slot:${slotId}`}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`restaurant-slot:${slotId}`}, 0))`;
       await tx.$queryRaw`SELECT id FROM "RestaurantSlot" WHERE id = ${slotId} FOR UPDATE`;
       const current = await tx.restaurantSlot.findUnique({ where: { id: slotId } });
       if (!current) return { success: false as const, error: "Créneau introuvable." };

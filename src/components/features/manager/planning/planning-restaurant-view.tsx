@@ -3,11 +3,11 @@
 import { useMemo, useState, useTransition } from "react";
 import {
   addDays,
-  addMonths,
   addWeeks,
   endOfMonth,
   format,
   getISOWeek,
+  parse,
   startOfWeek,
 } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -18,6 +18,7 @@ import { calculateWeeklyHours, checkDailyRest } from "@/lib/hcr-rules";
 import { calculateRestaurantRecap } from "@/lib/restaurant-recap";
 import { shiftDatesForDay, toAppTime, fromAppTime } from "@/lib/time-utils";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 
 export interface RestaurantEmployee {
   id: string;
@@ -51,6 +52,7 @@ export interface RestaurantClosure {
 }
 
 interface Props {
+  weekStart: string;
   employees: RestaurantEmployee[];
   slots: RestaurantSlot[];
   shifts: RestaurantShift[];
@@ -65,24 +67,20 @@ function CellAlert({ label }: { label: string }) {
   return <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">{label}</span>;
 }
 
-export function PlanningRestaurantView({ employees, slots, shifts, closures }: Props) {
+export function PlanningRestaurantView({ weekStart, employees, slots, shifts, closures }: Props) {
   const router = useRouter();
-  const [center, setCenter] = useState(() => startOfWeek(toAppTime(new Date()), { weekStartsOn: 1 }));
+  const center = useMemo(() => parse(weekStart, "yyyy-MM-dd", new Date()), [weekStart]);
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [editingSlot, setEditingSlot] = useState<RestaurantSlot | null>(null);
   const [editingShift, setEditingShift] = useState<RestaurantShift | null>(null);
-  const [duplicateStart, setDuplicateStart] = useState(() => format(new Date(), "yyyy-MM-dd"));
-  const [duplicateEnd, setDuplicateEnd] = useState(() => format(endOfMonth(new Date()), "yyyy-MM-dd"));
-  const [sourceWeek, setSourceWeek] = useState(() => format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd"));
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [duplicateStart, setDuplicateStart] = useState(() => format(toAppTime(new Date()), "yyyy-MM-dd"));
+  const [duplicateEnd, setDuplicateEnd] = useState(() => format(endOfMonth(toAppTime(new Date())), "yyyy-MM-dd"));
+  const [sourceWeek, setSourceWeek] = useState(weekStart);
 
-  const weeks = useMemo(() =>
-    Array.from({ length: 52 }, (_, index) => addWeeks(center, index - 25)),
-  [center]);
-  const days = useMemo(() => weeks.flatMap((week) =>
-    Array.from({ length: 7 }, (_, index) => addDays(week, index))
-  ), [weeks]);
+  const days = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(center, index)), [center]);
   const employeeById = useMemo(() => new Map(employees.map((employee) => [employee.id, employee])), [employees]);
   const closureOverrides = useMemo(() =>
     new Map(closures.map((closure) => [`${closure.slotId}:${closure.date}`, closure.closed])),
@@ -102,18 +100,18 @@ export function PlanningRestaurantView({ employees, slots, shifts, closures }: P
     return result;
   }, [shifts]);
   const recaps = useMemo(() => {
-    const result = new Map<string, Map<string, { weeklyHours: number; monthlyHours: number }>>();
-    for (const week of weeks) {
-      const byEmployee = new Map<string, { weeklyHours: number; monthlyHours: number }>();
-      for (const employee of employees) {
-        const employeeShifts = (shiftsByEmployee.get(employee.id) ?? [])
-          .map((shift) => ({ startTime: new Date(shift.startTime), endTime: new Date(shift.endTime) }));
-        byEmployee.set(employee.id, calculateRestaurantRecap(employeeShifts, week));
-      }
-      result.set(dateKey(week), byEmployee);
+    const result = new Map<string, { weeklyHours: number; monthlyHours: number }>();
+    for (const employee of employees) {
+      const employeeShifts = (shiftsByEmployee.get(employee.id) ?? [])
+        .map((shift) => ({ startTime: new Date(shift.startTime), endTime: new Date(shift.endTime) }));
+      result.set(employee.id, calculateRestaurantRecap(employeeShifts, fromAppTime(center)));
     }
     return result;
-  }, [employees, shiftsByEmployee, weeks]);
+  }, [center, employees, shiftsByEmployee]);
+
+  const navigateWeek = (week: Date) => {
+    router.push(`/manager/planning?week=${dateKey(week)}`);
+  };
 
   const refresh = (message?: string) => {
     if (message) setFeedback(message);
@@ -177,6 +175,7 @@ export function PlanningRestaurantView({ employees, slots, shifts, closures }: P
       setFeedback(result.success
         ? `Duplication terminée : ${result.data.createdCount} affectation(s) créée(s), ${result.data.skippedCount} ignorée(s).`
         : result.error);
+      if (result.success) setDuplicateOpen(false);
       router.refresh();
     });
   };
@@ -219,69 +218,49 @@ export function PlanningRestaurantView({ employees, slots, shifts, closures }: P
       <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-black tracking-tight text-slate-900">Planning Restaurant</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" onClick={() => setCenter(startOfWeek(toAppTime(new Date()), { weekStartsOn: 1 }))}>Aujourd&apos;hui</Button>
-          <Button variant="outline" aria-label="Mois précédent" onClick={() => setCenter(startOfWeek(addMonths(center, -1), { weekStartsOn: 1 }))}>←</Button>
-          <input
-            aria-label="Mois et année"
-            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-            type="month"
-            value={format(center, "yyyy-MM")}
-            onChange={(event) => {
-              const next = new Date(`${event.target.value}-15T12:00:00`);
-              if (!Number.isNaN(next.getTime())) setCenter(startOfWeek(next, { weekStartsOn: 1 }));
-            }}
-          />
-          <Button variant="outline" aria-label="Mois suivant" onClick={() => setCenter(startOfWeek(addMonths(center, 1), { weekStartsOn: 1 }))}>→</Button>
-          <Button variant="outline" onClick={() => setEditingSlot({ id: "", name: "", startTime: "08:00", endTime: "11:00", closedDays: [] })}>Gérer le planning type</Button>
-          <div className="flex flex-wrap items-center gap-1 rounded-md border bg-white p-1">
-            <label className="sr-only" htmlFor="source-week">Semaine type à dupliquer</label>
-            <input id="source-week" aria-label="Semaine type à dupliquer" type="date" value={sourceWeek} onChange={(event) => setSourceWeek(event.target.value)} className="min-w-32 rounded px-2 py-1 text-xs" />
-            <label className="sr-only" htmlFor="duplicate-start">Début de période</label>
-            <input id="duplicate-start" type="date" value={duplicateStart} onChange={(event) => setDuplicateStart(event.target.value)} className="min-w-32 rounded px-2 py-1 text-xs" />
-            <label className="sr-only" htmlFor="duplicate-end">Fin de période</label>
-            <input id="duplicate-end" type="date" value={duplicateEnd} onChange={(event) => setDuplicateEnd(event.target.value)} className="min-w-32 rounded px-2 py-1 text-xs" />
-            <Button disabled={pending} onClick={duplicate}>Dupliquer sur une période</Button>
-          </div>
+          <Button variant="outline" onClick={() => navigateWeek(startOfWeek(toAppTime(new Date()), { weekStartsOn: 1 }))}>Aujourd&apos;hui</Button>
+          <Button variant="outline" onClick={() => navigateWeek(addWeeks(center, -1))}>← Semaine précédente</Button>
+          <span className="text-sm font-semibold">Semaine {getISOWeek(center)} ({format(center, "d MMM", { locale: fr })} - {format(addDays(center, 6), "d MMM", { locale: fr })})</span>
+          <Button variant="outline" onClick={() => navigateWeek(addWeeks(center, 1))}>Semaine suivante →</Button>
+          <Button onClick={() => { setSourceWeek(weekStart); setDuplicateOpen(true); }}>Dupliquer sur une période</Button>
         </div>
       </header>
 
       {feedback && <div role="status" className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700">{feedback}</div>}
       {employees.length === 0 && <div className="rounded-lg border bg-white p-6 text-slate-600">Aucun salarié actif à affecter.</div>}
-      {slots.length === 0 && <div className="rounded-lg border border-dashed bg-white p-6 text-slate-600">Aucune ligne de créneau configurée. Utilisez « Gérer le planning type » ou « + Ajouter une ligne de créneau » pour commencer.</div>}
+      {slots.length === 0 && <div className="rounded-lg border border-dashed bg-white p-6 text-slate-600">Aucune ligne de créneau configurée. Utilisez « + Ajouter une ligne de créneau » pour commencer.</div>}
 
-      <div className="overflow-auto rounded-lg border bg-white shadow-sm">
-        <table className="border-collapse text-xs" style={{ tableLayout: "fixed", width: `${400 + days.length * 112}px` }}>
+      <div className="rounded-lg border bg-white shadow-sm">
+        <table className="w-full table-fixed border-collapse text-xs">
           <colgroup>
-            <col style={{ width: 220 }} />
-            <col style={{ width: 180 }} />
-            {days.map((day) => <col key={dateKey(day)} style={{ width: 112 }} />)}
+            <col className="w-16 sm:w-24" />
+            <col className="w-24 sm:w-32" />
+            {days.map((day) => <col key={dateKey(day)} />)}
           </colgroup>
           <thead className="sticky top-0 z-20 bg-slate-50">
             <tr>
-              <th className="sticky left-0 z-30 border p-2 text-left" rowSpan={2}>Liste salarié / Shift</th>
-              <th className="sticky left-[220px] z-30 border p-2 text-left" rowSpan={2}>Poste · horaire fixe</th>
-              {weeks.map((week) => (
-                <th key={dateKey(week)} className="border bg-slate-100 p-1" colSpan={7}>
+              <th className="border p-1 text-center" rowSpan={2}>Shift</th>
+              <th className="border p-1 text-center" rowSpan={2}>Poste · horaire fixe</th>
+                <th className="border bg-slate-100 p-1" colSpan={7}>
                   <div className="flex items-center justify-center gap-3">
-                    <span className="font-bold">S{String(getISOWeek(week)).padStart(2, "0")}</span>
-                    <Button disabled={pending} className="h-7 px-2 text-[10px]" onClick={() => publishWeek(week)}>Publier cette semaine</Button>
+                    <span className="font-bold">S{String(getISOWeek(center)).padStart(2, "0")}</span>
+                    <Button disabled={pending} className="h-7 px-2 text-[10px]" onClick={() => publishWeek(center)}>Publier cette semaine</Button>
                   </div>
                 </th>
-              ))}
             </tr>
             <tr>
               {days.map((day) => (
                 <th key={dateKey(day)} className="border px-1 py-2 text-center">
-                  <div>{format(day, "EEEE", { locale: fr })}</div>
-                  <div className="font-semibold">{format(day, "dd/MM/yyyy")}</div>
+                  <div>{format(day, "EEE", { locale: fr })}</div>
+                  <div className="font-semibold">{format(day, "dd/MM")}</div>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
             <tr className="bg-blue-50">
-              <th className="sticky left-0 z-10 border bg-blue-50 p-2 text-left">Liste salarié</th>
-              <td className="sticky left-[220px] z-10 border bg-blue-50 p-2 text-slate-500">Glisser ou sélectionner</td>
+              <th className="border bg-blue-50 p-1 text-center">Salariés</th>
+              <td className="border bg-blue-50 p-1 text-center text-slate-500">Glisser ou sélectionner</td>
               <td colSpan={days.length} className="border p-2">
                 <div className="flex min-w-0 flex-wrap gap-2">
                   {employees.map((employee) => (
@@ -301,10 +280,10 @@ export function PlanningRestaurantView({ employees, slots, shifts, closures }: P
             </tr>
             {slots.map((slot) => (
               <tr key={slot.id} className="h-16">
-                <th className="sticky left-0 z-10 border bg-white p-2 text-left font-bold text-slate-500 [writing-mode:vertical-rl] rotate-180">
+                <th className="border bg-white p-1 text-center font-bold text-slate-500">
                   Shift
                 </th>
-                <th className="sticky left-[220px] z-10 border bg-white px-3 py-2 text-left">
+                <th className="border bg-white p-1 text-center break-words">
                   <div className="font-bold text-slate-900">{slot.name}</div>
                   <div className="text-slate-500">{slot.startTime}–{slot.endTime}</div>
                   <button type="button" className="mt-1 text-[10px] font-medium text-blue-700 underline" onClick={() => setEditingSlot(slot)}>Modifier le poste</button>
@@ -335,7 +314,7 @@ export function PlanningRestaurantView({ employees, slots, shifts, closures }: P
                   return (
                     <td
                       key={`${slot.id}:${key}`}
-                      className={`border p-1 text-center ${closed ? "bg-slate-100" : selectedEmployee && !assigned ? "bg-blue-50" : ""}`}
+                      className={`border p-1 text-center break-words ${closed ? "bg-slate-100" : selectedEmployee && !assigned ? "bg-blue-50" : ""}`}
                       onDragOver={(event) => { if (!closed) event.preventDefault(); }}
                       onDrop={(event) => {
                         event.preventDefault();
@@ -367,8 +346,8 @@ export function PlanningRestaurantView({ employees, slots, shifts, closures }: P
               </tr>
             ))}
             <tr>
-              <td colSpan={2} className="sticky left-0 z-10 border bg-white p-2">
-                <Button variant="outline" onClick={() => setEditingSlot({ id: "", name: "", startTime: "11:00", endTime: "15:00", closedDays: [] })}>+ Ajouter une ligne de créneau</Button>
+              <td colSpan={2} className="border bg-white p-2">
+                <Button variant="outline" className="h-auto w-full whitespace-normal" onClick={() => setEditingSlot({ id: "", name: "", startTime: "11:00", endTime: "15:00", closedDays: [] })}>+ Ajouter une ligne de créneau</Button>
               </td>
               <td colSpan={days.length} className="border bg-white" />
             </tr>
@@ -376,30 +355,39 @@ export function PlanningRestaurantView({ employees, slots, shifts, closures }: P
         </table>
       </div>
 
-      <div className="overflow-auto rounded-lg border bg-white shadow-sm">
-        <table className="border-collapse text-xs" style={{ tableLayout: "fixed", width: `${400 + weeks.length * 784}px` }}>
-          <colgroup>
-            <col style={{ width: 220 }} />
-            <col style={{ width: 180 }} />
-            {weeks.map((week) => <col key={dateKey(week)} style={{ width: 784 }} />)}
-          </colgroup>
+      <div className="rounded-lg border bg-white shadow-sm">
+        <table className="w-full table-fixed border-collapse text-xs">
           <thead><tr className="bg-slate-100">
-            <th className="sticky left-0 z-10 border p-2 text-left">Récap salarié</th>
-            <th className="sticky left-[220px] z-10 border p-2">Hebdo théo · Mensuel théo</th>
-            {weeks.map((week) => <th key={dateKey(week)} className="border p-2">Récap : S{String(getISOWeek(week)).padStart(2, "0")} · Hebdo théo · Mensuel théo</th>)}
+            <th className="border p-2 text-left">Récap salarié</th>
+            <th className="border p-2">S{String(getISOWeek(center)).padStart(2, "0")} · Hebdo théo</th>
+            <th className="border p-2">Mensuel théo</th>
           </tr></thead>
           <tbody>{employees.map((employee) => <tr key={employee.id}>
-            <th className="sticky left-0 z-10 border bg-white p-2 text-left">{employee.name}</th>
-            <td className="sticky left-[220px] z-10 border bg-white p-2 text-center">heures</td>
-            {weeks.map((week) => {
-              const recap = recaps.get(dateKey(week))?.get(employee.id);
-              return <td key={dateKey(week)} className="border p-2 text-center">
-                {recap?.weeklyHours.toFixed(2)} h · {recap?.monthlyHours.toFixed(2)} h
-              </td>;
-            })}
+            <th className="border bg-white p-2 text-left">{employee.name}</th>
+            <td className="border p-2 text-center">{recaps.get(employee.id)?.weeklyHours.toFixed(2)} h</td>
+            <td className="border p-2 text-center">{recaps.get(employee.id)?.monthlyHours.toFixed(2)} h</td>
           </tr>)}</tbody>
         </table>
       </div>
+
+      <Dialog isOpen={duplicateOpen} onClose={() => setDuplicateOpen(false)} title="Dupliquer sur une période">
+        <form onSubmit={(event) => { event.preventDefault(); duplicate(); }} className="space-y-4">
+          <label className="block text-sm" htmlFor="source-week">Semaine type à dupliquer
+            <input id="source-week" type="date" required value={sourceWeek} onChange={(event) => setSourceWeek(event.target.value)} className="mt-1 w-full rounded border p-2" />
+          </label>
+          <label className="block text-sm" htmlFor="duplicate-start">Début de période
+            <input id="duplicate-start" type="date" required value={duplicateStart} onChange={(event) => setDuplicateStart(event.target.value)} className="mt-1 w-full rounded border p-2" />
+          </label>
+          <label className="block text-sm" htmlFor="duplicate-end">Fin de période
+            <input id="duplicate-end" type="date" required value={duplicateEnd} onChange={(event) => setDuplicateEnd(event.target.value)} className="mt-1 w-full rounded border p-2" />
+          </label>
+          {feedback && <p role="status" className="text-sm text-slate-700">{feedback}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setDuplicateOpen(false)}>Annuler</Button>
+            <Button type="submit" disabled={pending}>Dupliquer</Button>
+          </div>
+        </form>
+      </Dialog>
 
       {editingSlot && (
         <div role="dialog" aria-modal="true" aria-labelledby="slot-dialog-title" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">

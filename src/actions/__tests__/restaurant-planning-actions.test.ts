@@ -15,6 +15,7 @@ vi.mock("@/lib/prisma", () => ({
     shift: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     auditLog: { create: vi.fn() },
     $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
     $transaction: vi.fn(async (callback: (tx: any) => Promise<any>) => callback(prisma)),
   },
 }));
