@@ -115,6 +115,66 @@ export function validateConsecutiveShiftsDailyRest(
 }
 
 /**
+ * Contrôle uniquement les règles quotidiennes auxquelles participe le shift projeté.
+ * Les irrégularités historiques d'autres journées ne doivent pas empêcher son affectation.
+ */
+export function validateProjectedShiftDailyRest(
+  existing: ShiftTimeInterval[],
+  projected: ShiftTimeInterval,
+  minHours: number = HCR_RULES.MIN_DAILY_REST_HOURS,
+  timeZone: string = APP_TIMEZONE
+): { isValid: boolean; reason?: "overlap" | "amplitude" | "rest" } {
+  if (existing.some((shift) => projected.startTime < shift.endTime && projected.endTime > shift.startTime)) {
+    return { isValid: false, reason: "overlap" };
+  }
+
+  const key = (date: Date) => format(toZonedTime(date, timeZone), "yyyy-MM-dd");
+  const projectedDay = key(projected.startTime);
+  const sameDay = existing.filter((shift) => key(shift.startTime) === projectedDay);
+  const earliest = Math.min(projected.startTime.getTime(), ...sameDay.map((shift) => shift.startTime.getTime()));
+  const latest = Math.max(projected.endTime.getTime(), ...sameDay.map((shift) => shift.endTime.getTime()));
+  if (latest - earliest > HCR_RULES.MAX_DAILY_AMPLITUDE_HOURS * 3600000) {
+    return { isValid: false, reason: "amplitude" };
+  }
+
+  const before = existing.filter((shift) => key(shift.startTime) < projectedDay);
+  const after = existing.filter((shift) => key(shift.startTime) > projectedDay);
+  const previousEnd = before.reduce<number | null>((max, shift) =>
+    max === null ? shift.endTime.getTime() : Math.max(max, shift.endTime.getTime()), null);
+  const nextStart = after.reduce<number | null>((min, shift) =>
+    min === null ? shift.startTime.getTime() : Math.min(min, shift.startTime.getTime()), null);
+  if ((previousEnd !== null && !checkDailyRest(new Date(previousEnd), new Date(earliest), minHours)) ||
+      (nextStart !== null && !checkDailyRest(new Date(latest), new Date(nextStart), minHours))) {
+    return { isValid: false, reason: "rest" };
+  }
+  return { isValid: true };
+}
+
+/** Identifie les deux services aux bornes d'un repos inter-journalier insuffisant. */
+export function dailyRestViolationShiftIds(
+  shifts: (ShiftTimeInterval & { id: string })[],
+  minHours: number = HCR_RULES.MIN_DAILY_REST_HOURS,
+  timeZone: string = APP_TIMEZONE
+): Set<string> {
+  const days = new Map<string, (ShiftTimeInterval & { id: string })[]>();
+  for (const shift of shifts) {
+    const key = format(toZonedTime(shift.startTime, timeZone), "yyyy-MM-dd");
+    days.set(key, [...(days.get(key) ?? []), shift]);
+  }
+  const keys = [...days.keys()].sort();
+  const violations = new Set<string>();
+  for (let i = 1; i < keys.length; i++) {
+    const previous = days.get(keys[i - 1])!.reduce((last, shift) => shift.endTime > last.endTime ? shift : last);
+    const next = days.get(keys[i])!.reduce((first, shift) => shift.startTime < first.startTime ? shift : first);
+    if (previous.endTime <= next.startTime && !checkDailyRest(previous.endTime, next.startTime, minHours)) {
+      violations.add(previous.id);
+      violations.add(next.id);
+    }
+  }
+  return violations;
+}
+
+/**
  * Calcule les bornes d'une semaine civile (du lundi 00h00 au dimanche 23h59:59.999) dans un fuseau donné.
  */
 function getCivilWeekBounds(targetDate: Date, timeZone: string = APP_TIMEZONE) {
@@ -408,8 +468,9 @@ export function validateShiftSwapEligibility(
 
   // 1. Repos quotidien (11h)
   const combinedShifts = [...targetUserExistingShifts, shiftToTake];
-  const restValidation = validateConsecutiveShiftsDailyRest(
-    combinedShifts,
+  const restValidation = validateProjectedShiftDailyRest(
+    targetUserExistingShifts,
+    shiftToTake,
     minDailyRestHours,
     timeZone
   );

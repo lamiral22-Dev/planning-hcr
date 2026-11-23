@@ -6,7 +6,7 @@ import { RestaurantSlotSchema, AssignRestaurantSlotSchema } from "@/schemas/rest
 import { fromAppTime, shiftDatesForDay, toAppTime } from "@/lib/time-utils";
 import {
   checkNoticePeriod,
-  validateConsecutiveShiftsDailyRest,
+  validateProjectedShiftDailyRest,
   validateMaxConsecutiveWorkedDays,
   validateWeeklyHours,
   validateWeeklyRestDays,
@@ -101,7 +101,7 @@ export async function toggleRestaurantClosure(
 
 function validateAssignment(existing: { startTime: Date; endTime: Date }[], next: { startTime: Date; endTime: Date }) {
   const combined = [...existing, next];
-  const dailyRest = validateConsecutiveShiftsDailyRest(combined);
+  const dailyRest = validateProjectedShiftDailyRest(existing, next);
   if (!dailyRest.isValid) {
     return { error: dailyRest.reason === "overlap"
       ? "Le créneau chevauche un autre shift du salarié."

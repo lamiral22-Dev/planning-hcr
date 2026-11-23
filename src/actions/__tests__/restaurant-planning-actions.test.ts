@@ -56,6 +56,24 @@ describe("restaurant-planning-actions", () => {
     expect(prisma.shift.create).not.toHaveBeenCalled();
   });
 
+  it("contrôle les shifts du seul salarié affecté sans bloquer sur une ancienne amplitude", async () => {
+    const date = format(addDays(toAppTime(new Date()), 30), "yyyy-MM-dd");
+    const historicDay = format(addDays(toAppTime(new Date()), -30), "yyyy-MM-dd");
+    vi.mocked(prisma.shift.findMany)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { startTime: new Date(`${historicDay}T07:00:00Z`), endTime: new Date(`${historicDay}T11:00:00Z`) },
+        { startTime: new Date(`${historicDay}T18:00:00Z`), endTime: new Date(`${historicDay}T21:00:00Z`) },
+      ] as any);
+    vi.mocked(prisma.shift.create).mockResolvedValue({ id: "new-shift" } as any);
+
+    expect(await assignRestaurantSlot({ slotId: "slot-1", userId: "employee-1", date })).toMatchObject({ success: true });
+    expect(prisma.shift.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ userId: "employee-1", status: { not: "ANNULE" } }),
+    }));
+    expect(prisma.shift.create).toHaveBeenCalledOnce();
+  });
+
   it("soumet un remplacement tardif à accord sans changer le shift initial", async () => {
     const day = format(addDays(toAppTime(new Date()), 2), "yyyy-MM-dd");
     const occupied = {
