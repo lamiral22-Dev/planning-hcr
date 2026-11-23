@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   checkDailyRest,
   validateConsecutiveShiftsDailyRest,
+  validateProjectedShiftDailyRest,
+  dailyRestViolationShiftIds,
   calculateWeeklyHours,
   validateWeeklyHours,
   validateWeeklyRestDays,
@@ -13,6 +15,38 @@ import {
 
 describe("Moteur de règles HCR - src/lib/hcr-rules.ts", () => {
   describe("1. Repos quotidien (11h consécutives)", () => {
+    it("ignore une amplitude historique sans rapport mais contrôle le jour projeté", () => {
+      const shift = (start: string, end: string) => ({ startTime: new Date(start), endTime: new Date(end) });
+      const historical = [
+        shift("2025-01-01T08:00:00+01:00", "2025-01-01T12:00:00+01:00"),
+        shift("2025-01-01T19:00:00+01:00", "2025-01-01T22:00:00+01:00"),
+      ];
+      const projected = shift("2025-01-08T08:00:00+01:00", "2025-01-08T12:00:00+01:00");
+      expect(validateProjectedShiftDailyRest(historical, projected).isValid).toBe(true);
+      expect(validateProjectedShiftDailyRest([
+        ...historical, shift("2025-01-08T19:00:00+01:00", "2025-01-08T21:00:00+01:00"),
+      ], projected).isValid).toBe(true);
+      expect(validateProjectedShiftDailyRest([
+        ...historical, shift("2025-01-08T19:00:00+01:00", "2025-01-08T21:01:00+01:00"),
+      ], projected).reason).toBe("amplitude");
+    });
+
+    it("signale uniquement les bornes du repos inter-journalier insuffisant", () => {
+      const shift = (id: string, start: string, end: string) => ({
+        id, startTime: new Date(start), endTime: new Date(end),
+      });
+      const shifts = [
+        shift("matin", "2025-01-01T08:00:00+01:00", "2025-01-01T11:00:00+01:00"),
+        shift("midi", "2025-01-01T11:00:00+01:00", "2025-01-01T15:00:00+01:00"),
+        shift("soir", "2025-01-01T18:00:00+01:00", "2025-01-01T22:00:00+01:00"),
+        shift("lendemain", "2025-01-02T08:59:00+01:00", "2025-01-02T12:00:00+01:00"),
+        shift("suite", "2025-01-02T12:00:00+01:00", "2025-01-02T15:00:00+01:00"),
+      ];
+      expect([...dailyRestViolationShiftIds(shifts)]).toEqual(["soir", "lendemain"]);
+      shifts[3].startTime = new Date("2025-01-02T09:00:00+01:00");
+      expect(dailyRestViolationShiftIds(shifts).size).toBe(0);
+    });
+
     it("valide exactement 11h de repos consécutives", () => {
       const end = new Date("2025-01-01T22:00:00Z");
       const nextStart = new Date("2025-01-02T09:00:00Z");

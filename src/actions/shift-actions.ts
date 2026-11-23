@@ -9,7 +9,7 @@ import {
   type ShiftInput,
 } from "@/schemas/validations";
 import {
-  validateConsecutiveShiftsDailyRest,
+  validateProjectedShiftDailyRest,
   validateWeeklyHours,
   validateWeeklyRestDays,
   validateMaxConsecutiveWorkedDays,
@@ -64,7 +64,7 @@ export async function createShift(input: ShiftInput): Promise<ActionResult<Shift
         { startTime: validated.startTime, endTime: validated.endTime },
       ];
 
-      const dailyRestCheck = validateConsecutiveShiftsDailyRest(combinedShifts);
+      const dailyRestCheck = validateProjectedShiftDailyRest(existingShifts, validated);
       if (!dailyRestCheck.isValid) {
         return {
           success: false,
@@ -221,7 +221,7 @@ export async function applyMasterTemplate(startDate: Date): Promise<ActionResult
           select: { id: true, startTime: true, endTime: true },
         });
         const combined = [...existing, item];
-        const rest = validateConsecutiveShiftsDailyRest(combined);
+        const rest = validateProjectedShiftDailyRest(existing, item);
         if (!rest.isValid) throw new Error(dailyViolation(rest.reason).error);
         if (!validateWeeklyHours(existing, item).isValid) throw new Error("Dépassement du plafond hebdomadaire légal de 48h.");
         if (!validateWeeklyRestDays(combined, item.startTime).isValid ||
@@ -417,7 +417,7 @@ export async function updateShift(
         { startTime: validated.startTime, endTime: validated.endTime },
       ];
 
-      const dailyRestCheck = validateConsecutiveShiftsDailyRest(combinedShifts);
+      const dailyRestCheck = validateProjectedShiftDailyRest(otherShifts, validated);
       if (!dailyRestCheck.isValid) {
         return {
           success: false,

@@ -14,7 +14,7 @@ import { fr } from "date-fns/locale";
 import { useRouter } from "next/navigation";
 import { archiveRestaurantSlot, assignRestaurantSlot, duplicateRestaurantWeek, saveRestaurantSlot, toggleRestaurantClosure } from "@/actions/restaurant-planning-actions";
 import { deleteShift, publishQuinzaine, updateShift } from "@/actions/shift-actions";
-import { calculateWeeklyHours, checkDailyRest } from "@/lib/hcr-rules";
+import { calculateWeeklyHours, dailyRestViolationShiftIds } from "@/lib/hcr-rules";
 import { calculateRestaurantRecap } from "@/lib/restaurant-recap";
 import { shiftDatesForDay, toAppTime, fromAppTime } from "@/lib/time-utils";
 import { Button } from "@/components/ui/button";
@@ -99,6 +99,15 @@ export function PlanningRestaurantView({ weekStart, employees, slots, shifts, cl
     for (const shift of shifts) result.set(shift.userId, [...(result.get(shift.userId) ?? []), shift]);
     return result;
   }, [shifts]);
+  const dailyRestViolations = useMemo(() => {
+    const result = new Set<string>();
+    for (const employeeShifts of shiftsByEmployee.values()) {
+      for (const id of dailyRestViolationShiftIds(employeeShifts.map((shift) => ({
+        id: shift.id, startTime: new Date(shift.startTime), endTime: new Date(shift.endTime),
+      })))) result.add(id);
+    }
+    return result;
+  }, [shiftsByEmployee]);
   const recaps = useMemo(() => {
     const result = new Map<string, { weeklyHours: number; monthlyHours: number }>();
     for (const employee of employees) {
@@ -302,15 +311,7 @@ export function PlanningRestaurantView({ weekStart, employees, slots, shifts, cl
                     ...other.map((shift) => ({ startTime: new Date(shift.startTime), endTime: new Date(shift.endTime) })),
                     { startTime: new Date(assigned.startTime), endTime: new Date(assigned.endTime) },
                   ], new Date(assigned.startTime)) : 0;
-                  const dailyRestViolation = assigned && other.some((shift) => {
-                    const candidateStart = new Date(assigned.startTime);
-                    const candidateEnd = new Date(assigned.endTime);
-                    const priorStart = new Date(shift.startTime);
-                    const priorEnd = new Date(shift.endTime);
-                    if (priorEnd <= candidateStart) return !checkDailyRest(priorEnd, candidateStart);
-                    if (candidateEnd <= priorStart) return !checkDailyRest(candidateEnd, priorStart);
-                    return false;
-                  });
+                  const dailyRestViolation = assigned && dailyRestViolations.has(assigned.id);
                   return (
                     <td
                       key={`${slot.id}:${key}`}
@@ -354,6 +355,18 @@ export function PlanningRestaurantView({ weekStart, employees, slots, shifts, cl
           </tbody>
         </table>
       </div>
+
+      {shifts.filter((shift) => {
+        const day = dateKey(toAppTime(new Date(shift.startTime)));
+        return day >= weekStart && day <= dateKey(addDays(center, 6)) &&
+          !slots.some((slot) => slot.id === shift.slotId);
+      }).map((shift) => (
+        <div key={shift.id} className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+          Shift sans créneau actif : {employeeById.get(shift.userId)?.name ?? "Salarié inactif"} ·{" "}
+          {format(toAppTime(new Date(shift.startTime)), "dd/MM HH:mm")}–{format(toAppTime(new Date(shift.endTime)), "dd/MM HH:mm")}
+          {" "}<button type="button" className="font-semibold underline" onClick={() => setEditingShift(shift)}>Modifier</button>
+        </div>
+      ))}
 
       <div className="rounded-lg border bg-white shadow-sm">
         <table className="w-full table-fixed border-collapse text-xs">
