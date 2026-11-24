@@ -47,6 +47,7 @@ Toute logique d'affectation ou d'échange de shift doit obligatoirement valider 
 3\. \*\*Repos hebdomadaire :\*\* 2 jours de repos obligatoires par semaine (blocage si plus de 5 jours consécutifs travaillés).
 
 4\. \*\*Délai de prévenance (8 jours par défaut) :\*\* Toute modification de shift à J < délai déclenche obligatoirement le statut "En attente d'accord dérogatoire salarié".
+- **Exception Congés validés (Libération directe des créneaux) :** Lorsqu'un manager approuve une demande d'absence initiée par un salarié, les shifts du salarié situés sur la période du congé sont immédiatement supprimés ou libérés (y compris à moins de 8 jours) sans passer par `ATTENTE_DEROGATION`, la demande du salarié valant accord initial. Chaque libération doit être enregistrée dans `AuditLog`.
 
 5\. \*\*Règle d'arrondi de pointage :\*\* Arrondi automatique au quart d'heure ($15\\text{ min}$) supérieur ou inférieur selon la règle configurée en base.
 
