@@ -1,7 +1,8 @@
 import { addDays, format, parseISO } from "date-fns";
 import { fromZonedTime } from "date-fns-tz";
-import { Prisma, type LeaveRequest } from "@prisma/client";
+import type { Prisma, LeaveRequest } from "@prisma/client";
 import { APP_TIMEZONE, toAppTime } from "./time-utils";
+import { getFrenchPublicHolidays } from "./french-holidays";
 
 export function leaveDate(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
@@ -11,75 +12,45 @@ export function leaveKey(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
-function easterSunday(year: number): Date {
-  const a = year % 19;
-  const b = Math.floor(year / 100);
-  const c = year % 100;
-  const d = Math.floor(b / 4);
-  const e = b % 4;
-  const f = Math.floor((b + 8) / 25);
-  const g = Math.floor((b - f + 1) / 3);
-  const h = (19 * a + b - d - g + 15) % 30;
-  const i = Math.floor(c / 4);
-  const k = c % 4;
-  const l = (32 + 2 * e + 2 * i - h - k) % 7;
-  const m = Math.floor((a + 11 * h + 22 * l) / 451);
-  const month = Math.floor((h + l - 7 * m + 114) / 31);
-  const day = ((h + l - 7 * m + 114) % 31) + 1;
-  return new Date(Date.UTC(year, month - 1, day));
-}
-
-function frenchPublicHolidays(year: number): Set<string> {
-  const easter = easterSunday(year);
-  const holidays = [
-    new Date(Date.UTC(year, 0, 1)),
-    new Date(Date.UTC(year, 4, 1)),
-    new Date(Date.UTC(year, 4, 8)),
-    new Date(Date.UTC(year, 6, 14)),
-    new Date(Date.UTC(year, 7, 15)),
-    new Date(Date.UTC(year, 10, 1)),
-    new Date(Date.UTC(year, 10, 11)),
-    new Date(Date.UTC(year, 11, 25)),
-    addDays(easter, 1),
-    addDays(easter, 39),
-    addDays(easter, 50),
-  ];
-  return new Set(holidays.map((date) => format(date, "yyyy-MM-dd")));
-}
-
 export function countLeaveDays(start: string | Date, end: string | Date): number {
   const first = typeof start === "string" ? start : leaveKey(start);
   const last = typeof end === "string" ? end : leaveKey(end);
   if (last < first) return 0;
   let count = 0;
+  const holidays = new Map<number, Set<string>>();
   for (let cursor = parseISO(first); format(cursor, "yyyy-MM-dd") <= last; cursor = addDays(cursor, 1)) {
     const key = format(cursor, "yyyy-MM-dd");
     const day = cursor.getDay();
-    if (day !== 0 && !frenchPublicHolidays(cursor.getFullYear()).has(key)) count += 1;
+    const year = cursor.getFullYear();
+    if (!holidays.has(year)) holidays.set(year, new Set(getFrenchPublicHolidays(year).map((holiday) => holiday.date)));
+    if (day !== 0 && !holidays.get(year)!.has(key)) count += 1;
   }
   return count;
 }
 
-export function accruedLeaveDays(hireDate: Date, asOf = new Date()): number {
-  const hire = new Date(Date.UTC(hireDate.getUTCFullYear(), hireDate.getUTCMonth(), hireDate.getUTCDate()));
-  const today = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate()));
-  if (hire > today) return 0;
+export function accruedLeaveDays(hireDate: Date, asOf = leaveDate(format(toAppTime(new Date()), "yyyy-MM-dd"))): number {
+  const hire = format(toAppTime(hireDate), "yyyy-MM-dd");
+  const date = leaveKey(asOf);
+  if (hire > date) return 0;
+  const firstMonth = Number(hire.slice(0, 4)) * 12 + Number(hire.slice(5, 7)) - 1;
+  const targetMonth = Number(date.slice(0, 4)) * 12 + Number(date.slice(5, 7)) - 1;
+  return Math.max(0, targetMonth - firstMonth + (hire.endsWith("-01") ? 1 : 0)) * 2.5;
+}
 
-  let total = 0;
-  const month = new Date(Date.UTC(hire.getUTCFullYear(), hire.getUTCMonth(), 1));
-  while (month.getTime() <= today.getTime()) {
-    const monthStart = new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth(), 1));
-    const monthEnd = new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 0));
-    if (monthEnd <= today) {
-      const daysInMonth = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 0)).getUTCDate();
-      const eligibleDays = monthStart.getTime() === new Date(Date.UTC(hire.getUTCFullYear(), hire.getUTCMonth(), 1)).getTime()
-        ? daysInMonth - hire.getUTCDate() + 1
-        : daysInMonth;
-      total += 2.5 * eligibleDays / daysInMonth;
-    }
-    month.setUTCMonth(month.getUTCMonth() + 1);
-  }
-  return total;
+export type LeaveBalanceEntry = { startDate: string; endDate: string };
+
+export function remainingLeaveDays(hireDate: Date, adjustment: number, leaves: LeaveBalanceEntry[], asOf: string): number {
+  const lastConsumedDate = format(addDays(parseISO(asOf), -1), "yyyy-MM-dd");
+  const taken = leaves.filter((leave) => leave.startDate <= lastConsumedDate)
+    .reduce((days, leave) => days + countLeaveDays(leave.startDate, leave.endDate < lastConsumedDate ? leave.endDate : lastConsumedDate), 0);
+  return accruedLeaveDays(hireDate, leaveDate(asOf)) + adjustment - taken;
+}
+
+export function canReserveLeave(hireDate: Date, adjustment: number, leaves: LeaveBalanceEntry[], request: LeaveBalanceEntry): boolean {
+  const days = countLeaveDays(request.startDate, request.endDate);
+  if (days === 0 || remainingLeaveDays(hireDate, adjustment, leaves, request.startDate) < days) return false;
+  return leaves.filter((leave) => leave.startDate > request.startDate)
+    .every((leave) => remainingLeaveDays(hireDate, adjustment, leaves, leave.startDate) >= days + countLeaveDays(leave.startDate, leave.endDate));
 }
 
 export function shiftLeaveDays(start: Date, end: Date): { first: string; last: string } {

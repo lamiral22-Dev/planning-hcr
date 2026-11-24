@@ -107,6 +107,18 @@ describe("demandes de congés", () => {
     expect(prisma.leaveRequest.create).not.toHaveBeenCalled();
   });
 
+  it("autorise les CP acquis le premier du mois futur, mais bloque une demande avant ce crédit", async () => {
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue({ createdAt: new Date("2026-11-02T10:00:00Z"), cpAdjustment: 0 } as any);
+    expect(await createLeaveRequest({ type: "CP", startDate: "2026-11-30", endDate: "2026-11-30" }))
+      .toMatchObject({ success: false, error: "Solde de CP insuffisant : la prise de CP anticipés n'est pas autorisée." });
+    expect(prisma.leaveRequest.create).not.toHaveBeenCalled();
+
+    expect(await createLeaveRequest({ type: "CP", startDate: "2026-12-01", endDate: "2026-12-02" })).toMatchObject({ success: true });
+    expect(prisma.leaveRequest.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ startDate: new Date("2026-12-01T00:00:00.000Z"), endDate: new Date("2026-12-02T00:00:00.000Z") }),
+    }));
+  });
+
   it("autorise un CP autre motif avec solde nul et exige son motif", async () => {
     vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue({ createdAt: new Date(), cpAdjustment: 0 } as any);
     expect((await createLeaveRequest({ type: "AUTRE_MOTIF", startDate: day(2), endDate: day(2) })).success).toBe(false);

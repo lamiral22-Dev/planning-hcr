@@ -66,15 +66,33 @@ describe("SalariePlanningView", () => {
   });
 
   it("affiche le solde CP et bloque la demande lorsque la période dépasse le solde", () => {
-    render(<SalariePlanningView shifts={[]} cpRemainingDays={1} />);
+    render(<SalariePlanningView shifts={[]} cpBalance={{ hireDate: "2026-11-02T10:00:00Z", adjustment: 1 }} />);
     fireEvent.click(screen.getByRole("button", { name: /Demander un CP/ }));
     fireEvent.change(screen.getByLabelText("Début"), { target: { value: "2026-11-24" } });
     fireEvent.change(screen.getByLabelText("Fin"), { target: { value: "2026-11-25" } });
 
-    expect(screen.getByText(/CP restants : 1 jour/)).toBeDefined();
+    expect(screen.getByText(/CP restants à la date choisie : 1,0 jour/)).toBeDefined();
     expect(screen.getByText(/Période sélectionnée : 2 jour\(s\) décompté\(s\)/)).toBeDefined();
     expect(screen.getByText("Solde de CP insuffisant : la prise de CP anticipés n'est pas autorisée.")).toBeDefined();
     expect((screen.getByRole("button", { name: "Envoyer la demande" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("actualise le solde selon la date choisie et affiche les jours fériés", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-24T10:00:00Z"));
+    render(<SalariePlanningView shifts={[]} cpBalance={{ hireDate: "2026-11-02T10:00:00Z", adjustment: 0 }} />);
+    fireEvent.click(screen.getByRole("button", { name: /Demander un CP/ }));
+    fireEvent.change(screen.getByLabelText("Début"), { target: { value: "2026-11-30" } });
+    expect(screen.getByText(/CP restants à la date choisie : 0,0 jours/)).toBeDefined();
+    fireEvent.change(screen.getByLabelText("Début"), { target: { value: "2026-12-01" } });
+    fireEvent.change(screen.getByLabelText("Fin"), { target: { value: "2026-12-02" } });
+    expect(screen.getByText(/CP restants à la date choisie : 2,5 jours/)).toBeDefined();
+    expect((screen.getByRole("button", { name: "Envoyer la demande" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.change(screen.getByLabelText("Fin"), { target: { value: "2026-12-03" } });
+    expect((screen.getByRole("button", { name: "Envoyer la demande" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /15 jours suiv/ }));
+    fireEvent.click(screen.getByRole("button", { name: /15 jours suiv/ }));
+    expect(screen.getByText("Férié · Noël")).toBeDefined();
   });
 
   it("affiche la bannière bloquante de dérogation pour un shift à J < 8 et exige la mention exacte", async () => {

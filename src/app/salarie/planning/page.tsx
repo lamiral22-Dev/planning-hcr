@@ -2,7 +2,6 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { SalariePlanningView } from "@/components/features/salarie/planning/salarie-planning-view";
 import { redirect } from "next/navigation";
-import { accruedLeaveDays, countLeaveDays } from "@/lib/leave-utils";
 
 export default async function SalariePlanningPage() {
   const user = await getCurrentUser();
@@ -12,7 +11,7 @@ export default async function SalariePlanningPage() {
   }
 
   // Récupération des shifts du salarié
-  const [shifts, replacementRequests, leaves, approvedCpLeaves, employee] = await Promise.all([
+  const [shifts, replacementRequests, leaves, employee] = await Promise.all([
     prisma.shift.findMany({
     where: {
       userId: user.id,
@@ -33,10 +32,6 @@ export default async function SalariePlanningPage() {
     prisma.leaveRequest.findMany({
       where: { userId: user.id, status: { in: ["EN_ATTENTE", "APPROUVE"] } },
       orderBy: { startDate: "asc" },
-    }),
-    prisma.leaveRequest.findMany({
-      where: { userId: user.id, type: "CP", status: "APPROUVE" },
-      select: { startDate: true, endDate: true },
     }),
     prisma.user.findUniqueOrThrow({
       where: { id: user.id },
@@ -73,11 +68,7 @@ export default async function SalariePlanningPage() {
         startDate: leave.startDate.toISOString().slice(0, 10),
         endDate: leave.endDate.toISOString().slice(0, 10),
       }))}
-      cpRemainingDays={Math.max(
-        0,
-        accruedLeaveDays(employee.createdAt) + employee.cpAdjustment -
-          approvedCpLeaves.reduce((days, leave) => days + countLeaveDays(leave.startDate, leave.endDate), 0),
-      )}
+      cpBalance={{ hireDate: employee.createdAt.toISOString(), adjustment: employee.cpAdjustment }}
       activeTimeEntryId={activeTimeEntry?.id ?? null}
       activeClockInTime={activeTimeEntry?.clockInTime ?? null}
       replacementRequests={replacementRequests.map((request) => ({

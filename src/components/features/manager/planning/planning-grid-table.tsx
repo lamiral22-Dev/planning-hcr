@@ -9,6 +9,7 @@ import type { MasterTemplateItem } from "./master-template-modal";
 import { calculateWeeklyHours } from "@/lib/hcr-rules";
 import { addDays } from "date-fns";
 import { fromAppTime } from "@/lib/time-utils";
+import { getFrenchPublicHolidays } from "@/lib/french-holidays";
 
 export interface PlanningShift {
   id: string;
@@ -98,6 +99,8 @@ export function PlanningGridTable({
               >
                 <div className="capitalize">{format(day, "EEE", { locale: fr })}</div>
                 <div className="text-slate-500 font-normal print:text-[9px]">{format(day, "dd/MM")}</div>
+                {getFrenchPublicHolidays(day.getFullYear()).filter((holiday) => holiday.date === format(day, "yyyy-MM-dd")).map((holiday) =>
+                  <div key={holiday.date} className="text-[10px] font-medium text-amber-700">Férié · {holiday.name}</div>)}
               </th>
             ))}
             <th className="p-3 print:p-1 text-center font-bold min-w-[80px] print:min-w-0">Total 15j</th>
