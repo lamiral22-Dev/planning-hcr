@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { acknowledgeShift, acceptDerogation } from "@/actions/shift-actions";
 import { respondToReplacementRequest } from "@/actions/restaurant-planning-actions";
 import { createLeaveRequest } from "@/actions/leave-actions";
-import { addDays, addWeeks, format, startOfWeek } from "date-fns";
+import { addDays, format, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
 import { toAppTime } from "@/lib/time-utils";
 import { Dialog } from "@/components/ui/dialog";
@@ -50,7 +50,7 @@ export function SalariePlanningView({
   leaves = [],
 }: SalariePlanningViewProps) {
   const router = useRouter();
-  const [week, setWeek] = useState(() => startOfWeek(toAppTime(new Date()), { weekStartsOn: 1 }));
+  const [periodStart, setPeriodStart] = useState(() => startOfDay(toAppTime(new Date())));
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -61,6 +61,7 @@ export function SalariePlanningView({
 
   // Recherche du shift en cours ou du prochain shift pour le widget de pointage
   const now = new Date();
+  const todayKey = format(toAppTime(now), "yyyy-MM-dd");
   const currentOrNextShift =
     shifts.find(
       (s) => new Date(s.endTime) >= now && s.status !== "ANNULE" && s.leaveAction !== "OVERRIDE"
@@ -244,37 +245,48 @@ export function SalariePlanningView({
         />
       )}
 
-      {/* Vue hebdomadaire */}
-      <div className="flex flex-col gap-3">
+      <div className="flex w-full flex-col gap-3">
         <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider">
           Mes créneaux de travail
         </h2>
 
-        <div className="flex items-center justify-between gap-2">
-          <Button variant="outline" onClick={() => setWeek(addWeeks(week, -1))}>←</Button>
-          <span className="text-sm font-semibold">Semaine du {format(week, "d MMMM yyyy", { locale: fr })}</span>
-          <Button variant="outline" onClick={() => setWeek(addWeeks(week, 1))}>→</Button>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <Button variant="outline" className="h-auto min-h-10" onClick={() => setPeriodStart(addDays(periodStart, -15))}>
+            ← 15 jours préc.
+          </Button>
+          <span className="text-center text-sm font-semibold">
+            Du {format(periodStart, "d MMMM yyyy", { locale: fr })} au {format(addDays(periodStart, 14), "d MMMM yyyy", { locale: fr })}
+          </span>
+          <Button variant="outline" className="h-auto min-h-10" onClick={() => setPeriodStart(addDays(periodStart, 15))}>
+            15 jours suiv. →
+          </Button>
+          <Button variant="outline" className="h-auto min-h-10" onClick={() => setPeriodStart(startOfDay(toAppTime(new Date())))}>
+            Aujourd&apos;hui
+          </Button>
         </div>
-        <div className="overflow-x-auto">
-          <div className="grid grid-cols-7 gap-2 min-w-[980px]">
-            {Array.from({ length: 7 }, (_, index) => {
-              const day = addDays(week, index);
+        <ul className="w-full space-y-2">
+            {Array.from({ length: 15 }, (_, index) => {
+              const day = addDays(periodStart, index);
               const key = format(day, "yyyy-MM-dd");
               const dayShifts = shifts.filter((shift) => format(toAppTime(new Date(shift.startTime)), "yyyy-MM-dd") === key);
               const dayLeaves = leaves.filter((leave) => leave.startDate <= key && leave.endDate >= key);
-              return <div key={key} className="space-y-2 rounded-lg bg-gray-50 p-2">
-                <h3 className="text-sm font-bold capitalize">{format(day, "EEE d MMM", { locale: fr })}</h3>
-                {dayLeaves.map((leave) => <div key={leave.id} className="rounded border border-emerald-300 bg-emerald-50 p-2 text-sm font-semibold">
-                  {leave.type} · {leave.status === "APPROUVE" ? "Validé" : "En attente"}
-                </div>)}
-                {dayShifts.map((shift) => <SalarieShiftCard key={shift.id} shift={shift}
-                  onOpenDerogation={() => setDerogationTargetShift(shift)}
-                  onProposeSwap={() => { window.location.href = `/salarie/bourses?proposeShiftId=${shift.id}`; }} />)}
-                {!dayLeaves.length && !dayShifts.length && <p className="text-xs text-gray-500">Aucun créneau</p>}
-              </div>;
+              return <li key={key} className={`flex gap-3 rounded-lg p-2 ${key === todayKey ? "bg-blue-50 ring-1 ring-blue-200" : "bg-gray-50"}`}>
+                <h3 className="w-20 shrink-0 text-sm font-bold capitalize">
+                  {format(day, "EEE d MMM", { locale: fr })}
+                  {key === todayKey && <span className="block text-xs font-medium normal-case text-blue-700">Aujourd&apos;hui</span>}
+                </h3>
+                <div className="min-w-0 flex-1 space-y-2">
+                  {dayLeaves.map((leave) => <div key={leave.id} className="rounded border border-emerald-300 bg-emerald-50 p-2 text-sm font-semibold">
+                    {leave.type === "REPOS" ? "Repos" : leave.type} · {leave.status === "APPROUVE" ? "Validé" : "En attente"}
+                  </div>)}
+                  {dayShifts.map((shift) => <SalarieShiftCard key={shift.id} shift={shift}
+                    onOpenDerogation={() => setDerogationTargetShift(shift)}
+                    onProposeSwap={() => { window.location.href = `/salarie/bourses?proposeShiftId=${shift.id}`; }} />)}
+                  {!dayLeaves.length && !dayShifts.length && <p className="text-xs text-gray-500">Aucun créneau</p>}
+                </div>
+              </li>;
             })}
-          </div>
-        </div>
+        </ul>
       </div>
 
       <Dialog isOpen={leaveOpen} onClose={() => setLeaveOpen(false)} title="Demander un congé ou repos">

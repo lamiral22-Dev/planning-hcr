@@ -24,14 +24,6 @@ export function SalarieShiftCard({
   const start = new Date(shift.startTime);
   const end = new Date(shift.endTime);
 
-  const dayStr = start.toLocaleDateString("fr-FR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    timeZone: "Europe/Paris",
-  });
-  const capitalizedDay = dayStr.charAt(0).toUpperCase() + dayStr.slice(1);
-
   const startTimeStr = start.toLocaleTimeString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
@@ -60,17 +52,12 @@ export function SalarieShiftCard({
           : "border-gray-200 shadow-xs hover:border-gray-300"
       }`}
     >
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div>
-          <span className="text-xs font-bold text-gray-500 uppercase tracking-wider block">
-            {capitalizedDay}
-          </span>
-          <span className="text-lg font-bold text-gray-900">
-            {startTimeStr} - {endTimeStr}
-          </span>
-        </div>
+      <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+        <span className="text-lg font-bold text-gray-900">
+          {startTimeStr} - {endTimeStr}
+        </span>
 
-        <div>
+        <div className="min-w-0">
           {isPendingDerogation ? (
             <Badge variant="warning">Accord dérogatoire requis</Badge>
           ) : shift.status === "PUBLIE" ? (
@@ -81,16 +68,16 @@ export function SalarieShiftCard({
         </div>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-gray-500 border-t border-gray-100 pt-3 mt-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 border-t border-gray-100 pt-3 mt-2">
         <span>Durée : {durationHours}h</span>
 
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {isPendingDerogation && onOpenDerogation && (
             <Button
               variant="danger"
               size="sm"
               onClick={onOpenDerogation}
-              className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
+              className="h-auto min-h-10 max-w-full whitespace-normal bg-amber-600 hover:bg-amber-700 text-white font-bold"
             >
               ⚠️ Donner mon accord
             </Button>
@@ -101,7 +88,7 @@ export function SalarieShiftCard({
               variant="outline"
               size="sm"
               onClick={onProposeSwap}
-              className="text-xs"
+              className="h-auto min-h-10 max-w-full whitespace-normal text-xs"
             >
               🔄 Échanger
             </Button>
