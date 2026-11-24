@@ -10,6 +10,7 @@ Application web conçue pour l'hôtellerie-restauration, optimisant l'organisati
 - **Garde-fous HCR intégrés :** Blocage automatique en cas de non-respect du repos quotidien de 11h, du plafond de 48h/semaine ou des 2 jours de repos hebdomadaires[cite: 2, 3].
 - **Délai de prévenance & Dérogations :** Alerte sur les changements à moins de 8 jours et émargement numérique obligatoire[cite: 2, 3].
 - **Bourse d'échange de shifts :** Échanges directs entre équipiers sous contrôle de conformité et validation manager[cite: 2].
+- **Congés :** Demandes CP, RTT ou repos depuis la vue semaine salarié. Le manager arbitre les conflits avec les shifts ; les modifications tardives attendent l'accord explicite du salarié et les décisions sont auditées.
 - **Pointage & Arbitrage :** Clôture de service avec règle d'arrondi au quart d'heure et conservation de l'historique brut de pointage[cite: 2, 3].
 - **Export Paie :** Extraction mensuelle conforme CSV/Excel pour le gestionnaire de paie[cite: 2, 3].
 
@@ -40,3 +41,5 @@ Dans `/manager/planning`, créer les lignes de postes du planning restaurant, co
 Dans `/manager/planning-salarie`, vérifier que la navigation par quinzaine fonctionne sans commande de modification. Dans `/manager/planning`, vérifier que les anciens shifts sans poste associé ne sont pas attribués automatiquement à une ligne. Consulter le registre d'audit pour les traces de création, modification et publication. Les exports paie sont accessibles sous `/manager/paie` ; l'ancienne adresse `/manager/exports` reste disponible.
 
 La migration des lignes de postes et des demandes de remplacement est sous `prisma/migrations/20261120000000_restaurant_planning`. Attention : `npm run build` exécute `prisma db push --accept-data-loss` sur la base désignée par `DATABASE_URL` ; utiliser une base dédiée pour les vérifications.
+
+Pour vérifier les congés, demander un CP sur `/salarie/planning`, puis l'arbitrer dans `/manager/arbitrage`. Tester un shift publié à moins de huit jours : il reste affecté jusqu'à l'accord du salarié. Dans `/manager/planning`, affecter un salarié en congé et confirmer l'arbitrage ; pour une affectation tardive, vérifier que le congé reste actif jusqu'à l'accord dérogatoire. Contrôler les événements et les versions dans l'audit. La migration correspondante est `prisma/migrations/20261123000000_leave_requests`.

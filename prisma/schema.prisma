@@ -112,9 +112,28 @@ model User {
   auditLogs             AuditLog[]
   replacementRequests   ShiftReplacementRequest[] @relation("ReplacementProposedUser")
   initiatedReplacements ShiftReplacementRequest[] @relation("ReplacementRequestedBy")
+  leaveRequests         LeaveRequest[]
 
   @@index([role])
   @@index([isActive])
+}
+
+model LeaveRequest {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  type          String
+  startDate     DateTime @db.Date
+  endDate       DateTime @db.Date
+  reason        String?
+  status        String   @default("EN_ATTENTE")
+  reviewedById  String?
+  reviewComment String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  pendingShifts Shift[]
+
+  @@index([userId, status, startDate, endDate])
 }
 
 model Shift {
@@ -132,6 +151,8 @@ model Shift {
   derogationComment     String?
 
   planningVersion Int @default(1)
+  leaveRequestId String?
+  leaveAction    String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -141,6 +162,7 @@ model Shift {
   timeEntries         TimeEntry[]
   shiftSwaps          ShiftSwap[]
   replacementRequests ShiftReplacementRequest[]
+  leaveRequest        LeaveRequest?             @relation(fields: [leaveRequestId], references: [id], onDelete: Restrict)
 
   @@index([userId, startTime])
   @@index([slotId, startTime])

@@ -13,6 +13,7 @@ import {
 } from "@/lib/hcr-rules";
 import { addDays, differenceInCalendarDays, format, startOfWeek } from "date-fns";
 import { Prisma, type RestaurantSlot, type Shift, type ShiftReplacementRequest } from "@prisma/client";
+import { conflictingLeaves, removeLeaveDays, shiftLeaveDays } from "@/lib/leave-utils";
 
 export type RestaurantActionResult<T = unknown> =
   | { success: true; data: T }
@@ -123,7 +124,7 @@ export async function assignRestaurantSlot(
 ): Promise<RestaurantActionResult<Shift | { requestId: string; pending: true }>> {
   try {
     const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
-    const { slotId, userId, date } = AssignRestaurantSlotSchema.parse(input);
+    const { slotId, userId, date, forceOverrideLeave } = AssignRestaurantSlotSchema.parse(input);
     const startOfDay = shiftDatesForDay(date, "00:00", "23:59").startTime;
     const nextDay = shiftDatesForDay(format(addDays(toAppTime(startOfDay), 1), "yyyy-MM-dd"), "00:00", "00:01").startTime;
 
@@ -137,6 +138,16 @@ export async function assignRestaurantSlot(
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
       const employee = await tx.user.findFirst({ where: { id: userId, role: { in: ["SALARIE", "MANAGER"] }, isActive: true } });
       if (!employee) return { success: false as const, error: "Salarié actif introuvable." };
+      const leaves = await conflictingLeaves(tx, userId, slotShift.startTime, slotShift.endTime);
+      if (leaves.length && !forceOverrideLeave) {
+        return { success: false as const, error: "Ce salarié a un congé validé sur ce créneau.", code: "LEAVE_CONFLICT" };
+      }
+      if (leaves.length && await tx.shift.findFirst({
+        where: { userId, leaveAction: "RELEASE", status: "EN_ATTENTE_DEROGATION",
+          startTime: { lt: slotShift.endTime }, endTime: { gt: slotShift.startTime } },
+      })) {
+        return { success: false as const, error: "La libération d'un créneau attend encore l'accord du salarié." };
+      }
       const closureDate = new Date(`${date}T12:00:00`);
       const closureKey = new Date(Date.UTC(closureDate.getFullYear(), closureDate.getMonth(), closureDate.getDate()));
       const closure = await tx.restaurantClosure.findUnique({
@@ -156,11 +167,17 @@ export async function assignRestaurantSlot(
         orderBy: { id: "asc" },
       });
       const occupied = occupants[0];
+      if (occupied?.leaveAction) {
+        return { success: false as const, error: "Ce créneau attend une décision du salarié concernant son congé." };
+      }
       if (occupants.length > 1) {
         return { success: false as const, error: "Plusieurs shifts occupent déjà cette case. Corrigez la donnée avant de poursuivre." };
       }
       if (occupants.some((shift) => shift.userId === userId)) {
         return { success: true as const, data: occupied };
+      }
+      if (leaves.length && occupied) {
+        return { success: false as const, error: "Libérez d'abord cette case avant de modifier le congé." };
       }
 
       if (occupied) {
@@ -192,7 +209,8 @@ export async function assignRestaurantSlot(
         });
         const violation = validateAssignment(existing, slotShift);
         if (violation) return { success: false as const, error: violation.error };
-        const late = checkNoticePeriod(slotShift.startTime).requiresDerogation;
+        const settings = await tx.companySettings.findUnique({ where: { id: "default" } });
+        const late = checkNoticePeriod(slotShift.startTime, new Date(), settings?.noticeDelayDays ?? 8).requiresDerogation;
         const updated = await tx.shift.update({
           where: { id: occupied.id },
           data: {
@@ -224,7 +242,8 @@ export async function assignRestaurantSlot(
       });
       const violation = validateAssignment(existing, slotShift);
       if (violation) return { success: false as const, error: violation.error };
-      const late = checkNoticePeriod(slotShift.startTime).requiresDerogation;
+      const settings = await tx.companySettings.findUnique({ where: { id: "default" } });
+      const late = checkNoticePeriod(slotShift.startTime, new Date(), settings?.noticeDelayDays ?? 8).requiresDerogation;
       const created = await tx.shift.create({
         data: {
           userId,
@@ -234,8 +253,14 @@ export async function assignRestaurantSlot(
           status: late ? "EN_ATTENTE_DEROGATION" : "BROUILLON",
           isLateModification: late,
           derogationRequestedAt: late ? new Date() : null,
+          leaveRequestId: late && leaves.length ? leaves[0].id : null,
+          leaveAction: late && leaves.length ? "OVERRIDE" : null,
         },
       });
+      if (!late && leaves.length) {
+        const { first, last } = shiftLeaveDays(slotShift.startTime, slotShift.endTime);
+        for (const leave of leaves) await removeLeaveDays(tx, leave, first, last, actor.id, created.id);
+      }
       await tx.auditLog.create({
         data: {
           action: "SHIFT_CREATED",
@@ -273,10 +298,16 @@ export async function respondToReplacementRequest(
       if (!request || request.shift.userId !== user.id || request.status !== "EN_ATTENTE") {
         return { success: false as const, error: "Cette demande n'est plus en attente ou ne vous concerne pas." };
       }
+      if (request.shift.leaveAction) {
+        return { success: false as const, error: "Ce créneau attend une décision concernant un congé." };
+      }
       const now = new Date();
       let updatedShift = request.shift;
       if (accepted) {
         await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${request.proposedUserId} FOR UPDATE`;
+        if ((await conflictingLeaves(tx, request.proposedUserId, request.shift.startTime, request.shift.endTime)).length) {
+          return { success: false as const, error: "Le remplaçant a un congé validé sur ce créneau." };
+        }
         const existing = await tx.shift.findMany({
           where: { userId: request.proposedUserId, status: { not: "ANNULE" } },
           select: { startTime: true, endTime: true },
@@ -419,6 +450,11 @@ export async function duplicateRestaurantWeek(
             select: { id: true },
           });
           if (!employee) {
+            skippedCount++;
+            continue;
+          }
+          await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${sourceShift.userId} FOR UPDATE`;
+          if ((await conflictingLeaves(tx, sourceShift.userId, targetTimes.startTime, targetTimes.endTime)).length) {
             skippedCount++;
             continue;
           }

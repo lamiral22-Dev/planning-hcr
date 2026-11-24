@@ -106,6 +106,7 @@ describe("PlanningQuinzaineView", () => {
       success: true, data: {
         ...input, id: `shift-${input.userId}`, createdAt: new Date(), updatedAt: new Date(),
         slotId: input.slotId ?? null,
+        leaveRequestId: null, leaveAction: null,
         acknowledgedAt: null, derogationRequestedAt: null, derogationAcceptedAt: null, derogationComment: null,
       },
     }));

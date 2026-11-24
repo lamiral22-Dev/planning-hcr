@@ -14,6 +14,8 @@ vi.mock("@/lib/prisma", () => ({
     user: { findFirst: vi.fn() },
     shift: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     auditLog: { create: vi.fn() },
+    leaveRequest: { findMany: vi.fn().mockResolvedValue([]) },
+    companySettings: { findUnique: vi.fn().mockResolvedValue(null) },
     $queryRaw: vi.fn(),
     $executeRaw: vi.fn(),
     $transaction: vi.fn(async (callback: (tx: any) => Promise<any>) => callback(prisma)),
@@ -95,10 +97,32 @@ describe("restaurant-planning-actions", () => {
       success: true,
       data: { requestId: "request-1", pending: true },
     });
+
     expect(prisma.shift.update).not.toHaveBeenCalled();
     expect(prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ action: "SHIFT_REPLACEMENT_REQUESTED", recordId: "request-1" }),
     }));
+  });
+
+  it("bloque une affectation sur congé sans arbitrage explicite", async () => {
+      const date = format(addDays(toAppTime(new Date()), 2), "yyyy-MM-dd");
+      vi.mocked(prisma.leaveRequest.findMany).mockResolvedValueOnce([{ id: "leave-1" }] as any);
+      expect(await assignRestaurantSlot({ slotId: "slot-1", userId: "employee-1", date })).toMatchObject({
+        success: false, code: "LEAVE_CONFLICT",
+      });
+      expect(prisma.shift.create).not.toHaveBeenCalled();
+  });
+
+  it("maintient le congé lors d'une affectation tardive jusqu'à l'accord", async () => {
+      const date = format(addDays(toAppTime(new Date()), 2), "yyyy-MM-dd");
+      vi.mocked(prisma.leaveRequest.findMany).mockResolvedValueOnce([{ id: "leave-1" }] as any);
+      vi.mocked(prisma.shift.findFirst).mockResolvedValue(null);
+      vi.mocked(prisma.shift.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.shift.create).mockResolvedValue({ id: "shift-1" } as any);
+      expect(await assignRestaurantSlot({ slotId: "slot-1", userId: "employee-1", date, forceOverrideLeave: true })).toMatchObject({ success: true });
+      expect(prisma.shift.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+        status: "EN_ATTENTE_DEROGATION", leaveAction: "OVERRIDE", leaveRequestId: "leave-1",
+      }) }));
   });
 
   it("trace la fermeture ponctuelle d'une case", async () => {

@@ -28,16 +28,19 @@ export function SalarieShiftCard({
     weekday: "long",
     day: "numeric",
     month: "long",
+    timeZone: "Europe/Paris",
   });
   const capitalizedDay = dayStr.charAt(0).toUpperCase() + dayStr.slice(1);
 
   const startTimeStr = start.toLocaleTimeString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Europe/Paris",
   });
   const endTimeStr = end.toLocaleTimeString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Europe/Paris",
   });
 
   const durationHours = (

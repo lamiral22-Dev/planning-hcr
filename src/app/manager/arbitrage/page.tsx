@@ -44,6 +44,11 @@ export default async function ManagerArbitragePage() {
     },
     orderBy: { createdAt: "desc" },
   });
+  const pendingLeaves = await prisma.leaveRequest.findMany({
+    where: { status: "EN_ATTENTE" },
+    include: { user: { select: { firstName: true, lastName: true } } },
+    orderBy: { createdAt: "asc" },
+  });
 
   const discrepancies = [
     ...timeEntries.map((te) => ({
@@ -88,6 +93,11 @@ export default async function ManagerArbitragePage() {
     <ArbitrageView
       discrepancies={discrepancies}
       swaps={formattedSwaps}
+      leaves={pendingLeaves.map((leave) => ({
+        id: leave.id, type: leave.type, employee: `${leave.user.firstName} ${leave.user.lastName}`,
+        startDate: leave.startDate.toISOString().slice(0, 10),
+        endDate: leave.endDate.toISOString().slice(0, 10), reason: leave.reason,
+      }))}
     />
   );
 }

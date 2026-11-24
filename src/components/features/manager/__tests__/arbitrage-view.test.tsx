@@ -5,6 +5,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ArbitrageView } from "../arbitrage/arbitrage-view";
 import * as timeActions from "@/actions/time-actions";
 import * as swapActions from "@/actions/swap-actions";
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 vi.mock("@/actions/time-actions", () => ({
   arbitrateTimeEntry: vi.fn(),
