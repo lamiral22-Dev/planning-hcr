@@ -24,6 +24,7 @@ export interface UserListItem {
   lastName: string;
   role: Role;
   contractWeeklyHours: number;
+  cpAdjustment: number;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -71,6 +72,7 @@ export async function getUsers(filter?: {
         lastName: true,
         role: true,
         contractWeeklyHours: true,
+        cpAdjustment: true,
         isActive: true,
         createdAt: true,
         updatedAt: true,
@@ -133,6 +135,7 @@ export async function createUser(input: CreateUserInput): Promise<ActionResult<U
           email: validated.email,
           role: validated.role,
           contractWeeklyHours: validated.contractWeeklyHours,
+          cpAdjustment: validated.cpAdjustment,
           isActive: validated.isActive ?? true,
           passwordHash,
         },
@@ -144,6 +147,7 @@ export async function createUser(input: CreateUserInput): Promise<ActionResult<U
           lastName: true,
           role: true,
           contractWeeklyHours: true,
+          cpAdjustment: true,
           isActive: true,
           createdAt: true,
           updatedAt: true,
@@ -225,6 +229,7 @@ export async function updateUser(input: UpdateUserInput): Promise<ActionResult<U
     if (validated.contractWeeklyHours !== undefined) {
       updateData.contractWeeklyHours = validated.contractWeeklyHours;
     }
+    if (validated.cpAdjustment !== undefined) updateData.cpAdjustment = validated.cpAdjustment;
     if (validated.isActive !== undefined) {
       updateData.isActive = validated.isActive;
     }
@@ -246,6 +251,7 @@ export async function updateUser(input: UpdateUserInput): Promise<ActionResult<U
           lastName: true,
           role: true,
           contractWeeklyHours: true,
+          cpAdjustment: true,
           isActive: true,
           createdAt: true,
           updatedAt: true,
@@ -265,6 +271,7 @@ export async function updateUser(input: UpdateUserInput): Promise<ActionResult<U
             lastName: currentUser.lastName,
             role: currentUser.role,
             contractWeeklyHours: currentUser.contractWeeklyHours,
+            cpAdjustment: currentUser.cpAdjustment,
             isActive: currentUser.isActive,
           } as unknown as Prisma.InputJsonValue,
           payloadNew: user as unknown as Prisma.InputJsonValue,
@@ -326,6 +333,7 @@ export async function toggleUserActiveStatus(
           lastName: true,
           role: true,
           contractWeeklyHours: true,
+          cpAdjustment: true,
           isActive: true,
           createdAt: true,
           updatedAt: true,

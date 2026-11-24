@@ -39,6 +39,7 @@ interface PlanningGridTableProps {
   onPlaceTemplate?: (templateId: string, employeeId: string, day: Date) => void;
   isPlacing?: boolean;
   readOnly?: boolean;
+  leaves?: { id: string; userId: string; type: string; status: string; startDate: string; endDate: string }[];
 }
 
 export function PlanningGridTable({
@@ -54,6 +55,7 @@ export function PlanningGridTable({
   onPlaceTemplate,
   isPlacing = false,
   readOnly = false,
+  leaves = [],
 }: PlanningGridTableProps) {
   // Calculer les heures travaillées par collaborateur sur la quinzaine
   const getEmployeeStats = (empId: string) => {
@@ -159,6 +161,10 @@ export function PlanningGridTable({
                       s.status !== "ANNULE" &&
                       isSameDay(toAppTime(new Date(s.startTime)), day)
                   );
+                  const key = format(day, "yyyy-MM-dd");
+                  const dayLeaves = leaves.filter((leave) =>
+                    leave.userId === emp.id && leave.startDate <= key && leave.endDate >= key
+                  );
 
                   return (
                     <td
@@ -177,8 +183,11 @@ export function PlanningGridTable({
                         dIdx === 6 || dIdx === 13 ? "bg-slate-50/50" : ""
                       }`}
                     >
-                      {dayShifts.length > 0 ? (
+                      {dayShifts.length > 0 || dayLeaves.length > 0 ? (
                         <div className="space-y-1 print:space-y-0.5">
+                          {dayLeaves.map((leave) => <div key={leave.id} className={`rounded border p-1 font-semibold ${leave.status === "APPROUVE" ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-orange-300 bg-orange-50 text-orange-900"}`}>
+                            {leave.type === "AUTRE_MOTIF" ? "CP autre motif" : leave.type}{leave.status === "EN_ATTENTE" ? " (Demandé)" : ""}
+                          </div>)}
                           {dayShifts.map((shift) => {
                             const start = toAppTime(new Date(shift.startTime));
                             const end = toAppTime(new Date(shift.endTime));

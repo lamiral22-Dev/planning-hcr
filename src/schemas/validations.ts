@@ -178,6 +178,7 @@ export const CreateUserSchema = z.object({
     .min(1, "Le volume horaire hebdomadaire doit être d'au moins 1h")
     .max(48, "Le volume horaire ne peut excéder 48h (plafond légal)")
     .default(35.0),
+  cpAdjustment: z.number().min(-3650).max(3650).default(0),
   password: z
     .string()
     .min(6, "Le mot de passe doit comporter au moins 6 caractères")
@@ -217,6 +218,7 @@ export const UpdateUserSchema = z.object({
     .min(1, "Le volume horaire hebdomadaire doit être d'au moins 1h")
     .max(48, "Le volume horaire ne peut excéder 48h")
     .optional(),
+  cpAdjustment: z.number().min(-3650).max(3650).optional(),
   password: z
     .string()
     .min(6, "Le mot de passe doit comporter au moins 6 caractères")

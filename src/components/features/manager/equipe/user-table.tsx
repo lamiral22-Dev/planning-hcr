@@ -38,6 +38,7 @@ export function UserTable({
             <th className="px-4 py-3">Collaborateur</th>
             <th className="px-4 py-3">Rôle HCR</th>
             <th className="px-4 py-3">Contrat Hebdo</th>
+            <th className="px-4 py-3">Ajustement CP</th>
             <th className="px-4 py-3">Statut</th>
             <th className="px-4 py-3 text-right">Actions</th>
           </tr>
@@ -81,6 +82,7 @@ export function UserTable({
                     <span>{user.contractWeeklyHours}h / semaine</span>
                   </div>
                 </td>
+                <td className="px-4 py-3 text-slate-700">{user.cpAdjustment.toLocaleString("fr-FR")} j</td>
                 <td className="px-4 py-3">
                   {user.isActive ? (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">

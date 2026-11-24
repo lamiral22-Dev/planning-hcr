@@ -4,8 +4,7 @@ import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUserWithRoles } from "@/lib/auth";
-import { checkNoticePeriod } from "@/lib/hcr-rules";
-import { leaveDate, leaveInterval } from "@/lib/leave-utils";
+import { accruedLeaveDays, countLeaveDays, leaveDate, leaveInterval } from "@/lib/leave-utils";
 import { CreateLeaveSchema, ReviewLeaveSchema } from "@/schemas/leave";
 
 function json(value: unknown): Prisma.InputJsonValue {
@@ -16,6 +15,7 @@ function refresh() {
   revalidatePath("/salarie/planning");
   revalidatePath("/manager/arbitrage");
   revalidatePath("/manager/planning");
+  revalidatePath("/manager/planning-salarie");
 }
 
 export async function createLeaveRequest(input: unknown) {
@@ -30,6 +30,18 @@ export async function createLeaveRequest(input: unknown) {
         where: { userId: user.id, status: { in: ["EN_ATTENTE", "APPROUVE"] }, startDate: { lte: endDate }, endDate: { gte: startDate } },
       });
       if (existing) throw new Error("Une demande existe déjà sur cette période.");
+      if (data.type === "CP") {
+        const [employee, approvedLeaves] = await Promise.all([
+          tx.user.findUniqueOrThrow({ where: { id: user.id }, select: { createdAt: true, cpAdjustment: true } }),
+          tx.leaveRequest.findMany({ where: { userId: user.id, type: "CP", status: "APPROUVE" } }),
+        ]);
+        const taken = approvedLeaves.reduce((days, leave) => days + countLeaveDays(leave.startDate, leave.endDate), 0);
+        const remaining = Math.max(0, accruedLeaveDays(employee.createdAt) + employee.cpAdjustment - taken);
+        const requested = countLeaveDays(data.startDate, data.endDate);
+        if (remaining <= 0 || remaining < requested) {
+          throw new Error("Solde de CP insuffisant : la prise de CP anticipés n'est pas autorisée.");
+        }
+      }
       const leave = await tx.leaveRequest.create({
         data: { userId: user.id, type: data.type, startDate, endDate, reason: data.reason || null },
       });
@@ -71,33 +83,16 @@ export async function reviewLeaveRequest(input: unknown) {
         conflicts.some((shift) => !data.confirmedShifts?.some((confirmed) => confirmed.id === shift.id && confirmed.planningVersion === shift.planningVersion)))) {
         return { conflicts, leave: null };
       }
-      if (conflicts.some((shift) => shift.status === "EN_ATTENTE_DEROGATION")) {
-        throw new Error("Résolvez d'abord les dérogations en attente sur les créneaux concernés.");
-      }
-      if (conflicts.length && await tx.timeEntry.findFirst({ where: { shiftId: { in: conflicts.map((shift) => shift.id) } } })) {
-        throw new Error("Un créneau concerné possède déjà un pointage ; régularisez ce conflit avant de valider le congé.");
-      }
-      if (conflicts.some((shift) => shift.startTime <= new Date())) {
-        throw new Error("Un créneau a déjà commencé ; régularisez ce conflit avant de valider le congé.");
-      }
-      if (conflicts.length && (await tx.shiftSwap.findFirst({ where: { shiftId: { in: conflicts.map((shift) => shift.id) }, status: { in: ["EN_ATTENTE_EQUIPIER", "EN_ATTENTE_MANAGER"] } } }) ||
-        await tx.shiftReplacementRequest.findFirst({ where: { shiftId: { in: conflicts.map((shift) => shift.id) }, status: "EN_ATTENTE" } }))) {
-        throw new Error("Un échange ou remplacement est en attente sur un créneau concerné.");
-      }
-      const settings = await tx.companySettings.findUnique({ where: { id: "default" } });
       for (const shift of conflicts) {
-        const late = shift.status === "PUBLIE" &&
-          checkNoticePeriod(shift.startTime, new Date(), settings?.noticeDelayDays ?? 8).requiresDerogation;
         const updated = await tx.shift.update({
           where: { id: shift.id },
-          data: late ? {
-            status: "EN_ATTENTE_DEROGATION", isLateModification: true,
-            derogationRequestedAt: new Date(), derogationAcceptedAt: null, acknowledgedAt: null,
-            planningVersion: shift.planningVersion + 1, leaveRequestId: leave.id, leaveAction: "RELEASE",
-          } : { status: "ANNULE", planningVersion: shift.planningVersion + 1 },
+          data: {
+            status: "ANNULE", planningVersion: shift.planningVersion + 1,
+            leaveRequestId: leave.id, leaveAction: "RELEASE",
+          },
         });
         await tx.auditLog.create({ data: {
-          action: late ? "SHIFT_LEAVE_RELEASE_REQUESTED" : "SHIFT_RELEASED_FOR_LEAVE",
+          action: "SHIFT_RELEASED_FOR_LEAVE",
           tableName: "Shift", recordId: shift.id, userId: manager.id,
           payloadOld: json(shift), payloadNew: json({ shift: updated, leaveRequestId: leave.id }),
         } });

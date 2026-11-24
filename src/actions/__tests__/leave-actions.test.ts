@@ -8,8 +8,9 @@ import * as auth from "@/lib/auth";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    leaveRequest: { findFirst: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), create: vi.fn(), update: vi.fn() },
+    leaveRequest: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), create: vi.fn(), update: vi.fn() },
     shift: { findMany: vi.fn(), update: vi.fn() },
+    user: { findUniqueOrThrow: vi.fn() },
     timeEntry: { findFirst: vi.fn() },
     shiftSwap: { findFirst: vi.fn() },
     shiftReplacementRequest: { findFirst: vi.fn() },
@@ -30,6 +31,8 @@ describe("demandes de congés", () => {
     vi.clearAllMocks();
     vi.spyOn(auth, "requireUserWithRoles").mockResolvedValue(employee);
     vi.mocked(prisma.leaveRequest.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.leaveRequest.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue({ createdAt: new Date("2020-01-01T00:00:00Z"), cpAdjustment: 0 } as any);
     vi.mocked(prisma.leaveRequest.create).mockResolvedValue(leave as any);
     vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(leave as any);
     vi.mocked(prisma.leaveRequest.findUniqueOrThrow).mockResolvedValue(leave as any);
@@ -63,16 +66,52 @@ describe("demandes de congés", () => {
     expect(prisma.leaveRequest.update).not.toHaveBeenCalled();
   });
 
-  it("maintient un shift publié tardif jusqu'à l'accord et audite la demande", async () => {
+  it("libère immédiatement un shift publié tardif et audite la modification et l'approbation", async () => {
     vi.mocked(auth.requireUserWithRoles).mockResolvedValue(manager);
     const shift = { id: "shift", planningVersion: 3, startTime: addDays(new Date(), 2), endTime: addDays(new Date(), 2), status: "PUBLIE" };
     vi.mocked(prisma.shift.findMany).mockResolvedValue([shift] as any);
-    vi.mocked(prisma.shift.update).mockResolvedValue({ ...shift, status: "EN_ATTENTE_DEROGATION" } as any);
+    vi.mocked(prisma.shift.update).mockResolvedValue({ ...shift, status: "ANNULE" } as any);
     const result = await reviewLeaveRequest({ id: leave.id, approved: true, forceReleaseShifts: true, confirmedShifts: [{ id: "shift", planningVersion: 3 }] });
     expect(result.success).toBe(true);
-    expect(prisma.shift.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "EN_ATTENTE_DEROGATION", leaveAction: "RELEASE", leaveRequestId: "leave", planningVersion: 4 }) }));
+    expect(prisma.shift.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "ANNULE", leaveAction: "RELEASE", leaveRequestId: "leave", planningVersion: 4 }) }));
     expect(prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "LEAVE_APPROVED" }) }));
-    expect(prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "SHIFT_LEAVE_RELEASE_REQUESTED" }) }));
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      action: "SHIFT_RELEASED_FOR_LEAVE", recordId: "shift", payloadOld: expect.objectContaining({ id: "shift" }),
+      payloadNew: expect.objectContaining({ leaveRequestId: "leave" }),
+    }) }));
+  });
+
+  it.each(["BROUILLON", "EN_ATTENTE_DEROGATION"])("libère directement un shift %s sans accord dérogatoire", async (status) => {
+    vi.mocked(auth.requireUserWithRoles).mockResolvedValue(manager);
+    const shift = { id: "shift", planningVersion: 2, startTime: addDays(new Date(), 1), endTime: addDays(new Date(), 1), status };
+    vi.mocked(prisma.shift.findMany).mockResolvedValue([shift] as any);
+    vi.mocked(prisma.shift.update).mockResolvedValue({ ...shift, status: "ANNULE" } as any);
+
+    const result = await reviewLeaveRequest({
+      id: leave.id,
+      approved: true,
+      forceReleaseShifts: true,
+      confirmedShifts: [{ id: "shift", planningVersion: 2 }],
+    });
+
+    expect(result.success).toBe(true);
+    expect(prisma.shift.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "ANNULE", leaveRequestId: leave.id, leaveAction: "RELEASE" }),
+    }));
+  });
+
+  it("rejette côté serveur une demande de CP supérieure au solde acquis", async () => {
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue({ createdAt: new Date(), cpAdjustment: 0 } as any);
+    const result = await createLeaveRequest({ type: "CP", startDate: day(2), endDate: day(4) });
+    expect(result).toMatchObject({ success: false, error: "Solde de CP insuffisant : la prise de CP anticipés n'est pas autorisée." });
+    expect(prisma.leaveRequest.create).not.toHaveBeenCalled();
+  });
+
+  it("autorise un CP autre motif avec solde nul et exige son motif", async () => {
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue({ createdAt: new Date(), cpAdjustment: 0 } as any);
+    expect((await createLeaveRequest({ type: "AUTRE_MOTIF", startDate: day(2), endDate: day(2) })).success).toBe(false);
+    const result = await createLeaveRequest({ type: "AUTRE_MOTIF", startDate: day(2), endDate: day(2), reason: "Mariage" });
+    expect(result.success).toBe(true);
   });
 
   it("ne libère pas un shift si la version confirmée a changé", async () => {

@@ -4,7 +4,7 @@ import { PlanningQuinzaineView } from "@/components/features/manager/planning/pl
 export const dynamic = "force-dynamic";
 
 export default async function ManagerEmployeePlanningPage() {
-  const [employees, shifts] = await Promise.all([
+  const [employees, shifts, leaves] = await Promise.all([
     prisma.user.findMany({
       where: { role: "SALARIE" },
       select: { id: true, firstName: true, lastName: true, isActive: true },
@@ -14,6 +14,11 @@ export default async function ManagerEmployeePlanningPage() {
       where: { status: { not: "ANNULE" } },
       select: { id: true, userId: true, startTime: true, endTime: true, status: true, isLateModification: true },
       orderBy: { startTime: "asc" },
+    }),
+    prisma.leaveRequest.findMany({
+      where: { status: { in: ["EN_ATTENTE", "APPROUVE"] } },
+      select: { id: true, userId: true, type: true, status: true, startDate: true, endDate: true },
+      orderBy: { startDate: "asc" },
     }),
   ]);
 
@@ -30,6 +35,11 @@ export default async function ManagerEmployeePlanningPage() {
         ...shift,
         startTime: shift.startTime.toISOString(),
         endTime: shift.endTime.toISOString(),
+      }))}
+      leaves={leaves.map((leave) => ({
+        ...leave,
+        startDate: leave.startDate.toISOString().slice(0, 10),
+        endDate: leave.endDate.toISOString().slice(0, 10),
       }))}
     />
   );

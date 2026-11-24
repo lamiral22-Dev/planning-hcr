@@ -100,6 +100,7 @@ model User {
   lastName            String
   role                Role     @default(SALARIE)
   contractWeeklyHours Float    @default(35.0)
+  cpAdjustment        Float    @default(0)
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt

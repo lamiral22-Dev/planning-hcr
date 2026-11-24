@@ -17,6 +17,7 @@ import { fr } from "date-fns/locale";
 import { toAppTime } from "@/lib/time-utils";
 import { Dialog } from "@/components/ui/dialog";
 import { useRouter } from "next/navigation";
+import { countLeaveDays } from "@/lib/leave-utils";
 
 export interface SalarieShiftData {
   id: string;
@@ -38,6 +39,7 @@ export interface SalariePlanningViewProps {
   onRefresh?: () => void;
   replacementRequests?: { id: string; proposedEmployee: string; startTime: Date; endTime: Date }[];
   leaves?: { id: string; type: string; status: string; startDate: string; endDate: string }[];
+  cpRemainingDays?: number;
 }
 
 export function SalariePlanningView({
@@ -48,10 +50,15 @@ export function SalariePlanningView({
   onRefresh,
   replacementRequests = [],
   leaves = [],
+  cpRemainingDays = 0,
 }: SalariePlanningViewProps) {
   const router = useRouter();
   const [periodStart, setPeriodStart] = useState(() => startOfDay(toAppTime(new Date())));
   const [leaveOpen, setLeaveOpen] = useState(false);
+  const [leaveType, setLeaveType] = useState("CP");
+  const [leaveStart, setLeaveStart] = useState("");
+  const [leaveEnd, setLeaveEnd] = useState("");
+  const [leaveReason, setLeaveReason] = useState("");
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -62,6 +69,10 @@ export function SalariePlanningView({
   // Recherche du shift en cours ou du prochain shift pour le widget de pointage
   const now = new Date();
   const todayKey = format(toAppTime(now), "yyyy-MM-dd");
+  const requestedLeaveDays = leaveStart && leaveEnd && leaveEnd >= leaveStart
+    ? countLeaveDays(leaveStart, leaveEnd)
+    : 0;
+  const insufficientCp = leaveType === "CP" && (cpRemainingDays <= 0 || cpRemainingDays < requestedLeaveDays);
   const currentOrNextShift =
     shifts.find(
       (s) => new Date(s.endTime) >= now && s.status !== "ANNULE" && s.leaveAction !== "OVERRIDE"
@@ -276,8 +287,8 @@ export function SalariePlanningView({
                   {key === todayKey && <span className="block text-xs font-medium normal-case text-blue-700">Aujourd&apos;hui</span>}
                 </h3>
                 <div className="min-w-0 flex-1 space-y-2">
-                  {dayLeaves.map((leave) => <div key={leave.id} className="rounded border border-emerald-300 bg-emerald-50 p-2 text-sm font-semibold">
-                    {leave.type === "REPOS" ? "Repos" : leave.type} · {leave.status === "APPROUVE" ? "Validé" : "En attente"}
+                  {dayLeaves.map((leave) => <div key={leave.id} className={`rounded border p-2 text-sm font-semibold ${leave.status === "APPROUVE" ? "border-emerald-300 bg-emerald-50" : "border-orange-300 bg-orange-50"}`}>
+                    {leave.type === "REPOS" ? "Repos" : leave.type === "AUTRE_MOTIF" ? "CP autre motif" : leave.type} · {leave.status === "APPROUVE" ? "Validé" : "En attente"}
                   </div>)}
                   {dayShifts.map((shift) => <SalarieShiftCard key={shift.id} shift={shift}
                     onOpenDerogation={() => setDerogationTargetShift(shift)}
@@ -299,12 +310,20 @@ export function SalariePlanningView({
             else setFeedback({ type: "error", text: result.error });
           });
         }}>
-          <label className="block text-sm">Type<select name="type" className="mt-1 w-full rounded border p-2"><option>CP</option><option>RTT</option><option>REPOS</option></select></label>
-          <label className="block text-sm">Début<input type="date" name="startDate" required className="mt-1 w-full rounded border p-2" /></label>
-          <label className="block text-sm">Fin<input type="date" name="endDate" required className="mt-1 w-full rounded border p-2" /></label>
-          <label className="block text-sm">Motif facultatif<textarea name="reason" maxLength={1000} className="mt-1 w-full rounded border p-2" /></label>
+          <label className="block text-sm">Type<select name="type" value={leaveType} onChange={(event) => setLeaveType(event.target.value)} className="mt-1 w-full rounded border p-2">
+            <option value="CP">CP</option><option value="RTT">RTT</option><option value="REPOS">Repos</option>
+            <option value="AUTRE_MOTIF">CP autre motif (Décès, mariage, événement familial...)</option>
+          </select></label>
+          <div className="rounded border border-blue-200 bg-blue-50 p-3 font-semibold text-blue-900">
+            CP restants : {cpRemainingDays.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} jours ·
+            {" "}Période sélectionnée : {requestedLeaveDays} jour(s) décompté(s)
+          </div>
+          <label className="block text-sm">Début<input type="date" name="startDate" required value={leaveStart} onChange={(event) => setLeaveStart(event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
+          <label className="block text-sm">Fin<input type="date" name="endDate" required value={leaveEnd} onChange={(event) => setLeaveEnd(event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
+          <label className="block text-sm">{leaveType === "AUTRE_MOTIF" ? "Motif obligatoire" : "Motif facultatif"}<textarea name="reason" value={leaveReason} onChange={(event) => setLeaveReason(event.target.value)} required={leaveType === "AUTRE_MOTIF"} maxLength={1000} className="mt-1 w-full rounded border p-2" /></label>
+          {insufficientCp && <p role="alert" className="text-red-700">Solde de CP insuffisant : la prise de CP anticipés n&apos;est pas autorisée.</p>}
           {feedback?.type === "error" && <p role="alert" className="text-red-700">{feedback.text}</p>}
-          <Button type="submit" disabled={isPending}>Envoyer la demande</Button>
+          <Button type="submit" disabled={isPending || insufficientCp || (leaveType === "AUTRE_MOTIF" && !leaveReason.trim())}>Envoyer la demande</Button>
         </form>
       </Dialog>
 

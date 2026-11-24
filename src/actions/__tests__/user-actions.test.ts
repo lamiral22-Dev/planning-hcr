@@ -41,6 +41,7 @@ describe("user-actions", () => {
     lastName: "Rousseau",
     role: "SALARIE" as const,
     contractWeeklyHours: 35.0,
+    cpAdjustment: 0,
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -94,6 +95,7 @@ describe("user-actions", () => {
         email: "thomas@resto.fr",
         role: "SALARIE",
         contractWeeklyHours: 35.0,
+        cpAdjustment: 0,
         isActive: true,
       });
 
@@ -120,6 +122,7 @@ describe("user-actions", () => {
         email: "different@resto.fr",
         role: "SALARIE",
         contractWeeklyHours: 35.0,
+        cpAdjustment: 0,
         isActive: true,
       });
 
@@ -142,6 +145,7 @@ describe("user-actions", () => {
         email: "thomas@resto.fr",
         role: "SALARIE",
         contractWeeklyHours: 35.0,
+        cpAdjustment: 0,
         isActive: true,
       });
 
