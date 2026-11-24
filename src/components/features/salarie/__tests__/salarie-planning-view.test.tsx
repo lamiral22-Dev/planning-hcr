@@ -65,6 +65,18 @@ describe("SalariePlanningView", () => {
     expect(screen.getByText(/J'accepte expressément la modification/)).toBeDefined();
   });
 
+  it("affiche le solde CP et bloque la demande lorsque la période dépasse le solde", () => {
+    render(<SalariePlanningView shifts={[]} cpRemainingDays={1} />);
+    fireEvent.click(screen.getByRole("button", { name: /Demander un CP/ }));
+    fireEvent.change(screen.getByLabelText("Début"), { target: { value: "2026-11-24" } });
+    fireEvent.change(screen.getByLabelText("Fin"), { target: { value: "2026-11-25" } });
+
+    expect(screen.getByText(/CP restants : 1 jour/)).toBeDefined();
+    expect(screen.getByText(/Période sélectionnée : 2 jour\(s\) décompté\(s\)/)).toBeDefined();
+    expect(screen.getByText("Solde de CP insuffisant : la prise de CP anticipés n'est pas autorisée.")).toBeDefined();
+    expect((screen.getByRole("button", { name: "Envoyer la demande" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("affiche la bannière bloquante de dérogation pour un shift à J < 8 et exige la mention exacte", async () => {
     const lateShift = {
       id: "late-shift-1",

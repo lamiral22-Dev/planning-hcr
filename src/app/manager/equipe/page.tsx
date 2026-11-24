@@ -23,6 +23,7 @@ export default async function ManagerEquipePage() {
       lastName: true,
       role: true,
       contractWeeklyHours: true,
+      cpAdjustment: true,
       isActive: true,
       createdAt: true,
       updatedAt: true,

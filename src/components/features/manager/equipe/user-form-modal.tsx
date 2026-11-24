@@ -28,6 +28,7 @@ export function UserFormModal({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("SALARIE");
   const [contractWeeklyHours, setContractWeeklyHours] = useState<number>(35);
+  const [cpAdjustment, setCpAdjustment] = useState(0);
   const [password, setPassword] = useState("");
   const [isActive, setIsActive] = useState<boolean>(true);
 
@@ -43,6 +44,7 @@ export function UserFormModal({
       setEmail(userToEdit.email);
       setRole(userToEdit.role);
       setContractWeeklyHours(userToEdit.contractWeeklyHours);
+      setCpAdjustment(userToEdit.cpAdjustment);
       setIsActive(userToEdit.isActive);
       setPassword("");
     } else {
@@ -52,6 +54,7 @@ export function UserFormModal({
       setEmail("");
       setRole("SALARIE");
       setContractWeeklyHours(35);
+      setCpAdjustment(0);
       setIsActive(true);
       setPassword("");
     }
@@ -73,6 +76,7 @@ export function UserFormModal({
         email,
         role,
         contractWeeklyHours: Number(contractWeeklyHours),
+        cpAdjustment: Number(cpAdjustment),
         isActive,
         password: password.trim() ? password : undefined,
       };
@@ -106,6 +110,7 @@ export function UserFormModal({
         email,
         role,
         contractWeeklyHours: Number(contractWeeklyHours),
+        cpAdjustment: Number(cpAdjustment),
         isActive,
         password: password.trim() ? password : undefined,
       };
@@ -239,7 +244,7 @@ export function UserFormModal({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Volume hebdomadaire contractuel (heures) *
@@ -256,6 +261,22 @@ export function UserFormModal({
               {errors.contractWeeklyHours && (
                 <p className="text-xs text-red-600 mt-1">{errors.contractWeeklyHours}</p>
               )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Ajustement initial du solde CP (jours)
+              </label>
+              <input
+                type="number"
+                step="0.5"
+                min="-3650"
+                max="3650"
+                value={cpAdjustment}
+                onChange={(e) => setCpAdjustment(parseFloat(e.target.value) || 0)}
+                className="w-full px-3 py-2 border rounded-md text-sm border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {errors.cpAdjustment && <p className="text-xs text-red-600 mt-1">{errors.cpAdjustment}</p>}
             </div>
 
             <div>

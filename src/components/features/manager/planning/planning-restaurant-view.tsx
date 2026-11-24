@@ -23,6 +23,8 @@ import { Dialog } from "@/components/ui/dialog";
 export interface RestaurantEmployee {
   id: string;
   name: string;
+  cpTakenDays: number;
+  cpRemainingDays: number;
 }
 
 export interface RestaurantSlot {
@@ -57,7 +59,7 @@ interface Props {
   slots: RestaurantSlot[];
   shifts: RestaurantShift[];
   closures: RestaurantClosure[];
-  leaves?: { id: string; userId: string; name: string; type: string; startDate: string; endDate: string }[];
+  leaves?: { id: string; userId: string; name: string; type: string; status: string; startDate: string; endDate: string }[];
 }
 
 function dateKey(date: Date) {
@@ -360,10 +362,12 @@ export function PlanningRestaurantView({ weekStart, employees, slots, shifts, cl
               </tr>
             ))}
             <tr>
-              <th colSpan={2} className="border bg-emerald-50 p-2">Absences / Congés validés</th>
-              {days.map((day) => <td key={dateKey(day)} className="border bg-emerald-50 p-1 align-top">
+              <th colSpan={2} className="border bg-slate-50 p-2">Absences &amp; Congés</th>
+              {days.map((day) => <td key={dateKey(day)} className="border bg-slate-50 p-1 align-top">
                 {leaves.filter((leave) => leave.startDate <= dateKey(day) && leave.endDate >= dateKey(day)).map((leave) =>
-                  <div key={leave.id} className="rounded bg-emerald-100 p-1 font-semibold text-emerald-900">{leave.type} · {leave.name}</div>
+                  <div key={leave.id} className={`mb-1 rounded p-1 font-semibold ${leave.status === "APPROUVE" ? "bg-emerald-100 text-emerald-900" : "bg-orange-100 text-orange-900"}`}>
+                    {leave.type === "AUTRE_MOTIF" ? "CP autre motif" : leave.type}{leave.status === "EN_ATTENTE" ? " (Demandé)" : ""} · {leave.name}
+                  </div>
                 )}
               </td>)}
             </tr>
@@ -406,11 +410,15 @@ export function PlanningRestaurantView({ weekStart, employees, slots, shifts, cl
             <th className="border p-2 text-left">Récap salarié</th>
             <th className="border p-2">S{String(getISOWeek(center)).padStart(2, "0")} · Hebdo théo</th>
             <th className="border p-2">Mensuel théo</th>
+            <th className="border p-2">CP pris</th>
+            <th className="border p-2">CP restant</th>
           </tr></thead>
           <tbody>{employees.map((employee) => <tr key={employee.id}>
             <th className="border bg-white p-2 text-left">{employee.name}</th>
             <td className="border p-2 text-center">{recaps.get(employee.id)?.weeklyHours.toFixed(2)} h</td>
             <td className="border p-2 text-center">{recaps.get(employee.id)?.monthlyHours.toFixed(2)} h</td>
+            <td className="border p-2 text-center">{employee.cpTakenDays.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} j</td>
+            <td className="border p-2 text-center">{employee.cpRemainingDays.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} j</td>
           </tr>)}</tbody>
         </table>
       </div>

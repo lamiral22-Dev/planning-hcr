@@ -17,6 +17,7 @@ interface PlanningQuinzaineViewProps {
   isLoading?: boolean;
   initialTemplates?: MasterTemplateItem[];
   readOnly?: boolean;
+  leaves?: { id: string; userId: string; type: string; status: string; startDate: string; endDate: string }[];
 }
 
 export function PlanningQuinzaineView({
@@ -25,6 +26,7 @@ export function PlanningQuinzaineView({
   isLoading = false,
   initialTemplates = [],
   readOnly = false,
+  leaves = [],
 }: PlanningQuinzaineViewProps) {
   // Navigation de la quinzaine (commence le lundi)
   const [startDate, setStartDate] = useState<Date>(() => {
@@ -208,6 +210,7 @@ export function PlanningQuinzaineView({
           days={days}
           employees={employees}
           shifts={shifts}
+          leaves={leaves}
           onSelectShift={handleSelectShift}
           onAddShift={handleAddShiftAt}
           templates={initialTemplates}
