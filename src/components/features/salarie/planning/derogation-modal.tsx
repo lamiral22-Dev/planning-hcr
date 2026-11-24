@@ -13,6 +13,8 @@ export interface DerogationModalProps {
     timeRangeStr: string;
   };
   isLoading?: boolean;
+  leaveAction?: string | null;
+  planningVersion?: number;
 }
 
 export function DerogationModal({
@@ -21,6 +23,8 @@ export function DerogationModal({
   onConfirm,
   shiftInfo,
   isLoading,
+  leaveAction,
+  planningVersion,
 }: DerogationModalProps) {
   const [hasAgreed, setHasAgreed] = useState(false);
   const [comment, setComment] = useState("");
@@ -39,7 +43,10 @@ export function DerogationModal({
     >
       <div className="flex flex-col gap-4">
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900">
+          {leaveAction === "RELEASE" && <p className="font-bold">Votre accord annulera ce créneau pour votre congé.</p>}
+          {leaveAction === "OVERRIDE" && <p className="font-bold">Votre accord affectera ce créneau et annulera le congé sur les jours concernés.</p>}
           <p className="font-semibold">Créneau concerné :</p>
+          <p>Version du planning : {planningVersion}</p>
           <p>
             {shiftInfo.dateStr} de {shiftInfo.timeRangeStr}
           </p>

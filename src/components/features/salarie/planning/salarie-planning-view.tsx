@@ -11,6 +11,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { acknowledgeShift, acceptDerogation } from "@/actions/shift-actions";
 import { respondToReplacementRequest } from "@/actions/restaurant-planning-actions";
+import { createLeaveRequest } from "@/actions/leave-actions";
+import { addDays, addWeeks, format, startOfWeek } from "date-fns";
+import { fr } from "date-fns/locale";
+import { toAppTime } from "@/lib/time-utils";
+import { Dialog } from "@/components/ui/dialog";
+import { useRouter } from "next/navigation";
 
 export interface SalarieShiftData {
   id: string;
@@ -21,6 +27,7 @@ export interface SalarieShiftData {
   acknowledgedAt?: Date | null;
   derogationAcceptedAt?: Date | null;
   planningVersion?: number;
+  leaveAction?: string | null;
 }
 
 export interface SalariePlanningViewProps {
@@ -30,6 +37,7 @@ export interface SalariePlanningViewProps {
   isLoading?: boolean;
   onRefresh?: () => void;
   replacementRequests?: { id: string; proposedEmployee: string; startTime: Date; endTime: Date }[];
+  leaves?: { id: string; type: string; status: string; startDate: string; endDate: string }[];
 }
 
 export function SalariePlanningView({
@@ -39,7 +47,11 @@ export function SalariePlanningView({
   isLoading,
   onRefresh,
   replacementRequests = [],
+  leaves = [],
 }: SalariePlanningViewProps) {
+  const router = useRouter();
+  const [week, setWeek] = useState(() => startOfWeek(toAppTime(new Date()), { weekStartsOn: 1 }));
+  const [leaveOpen, setLeaveOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -51,7 +63,7 @@ export function SalariePlanningView({
   const now = new Date();
   const currentOrNextShift =
     shifts.find(
-      (s) => new Date(s.endTime) >= now && s.status !== "ANNULE"
+      (s) => new Date(s.endTime) >= now && s.status !== "ANNULE" && s.leaveAction !== "OVERRIDE"
     ) || null;
 
   // Calcul du besoin d'émargement global
@@ -89,6 +101,7 @@ export function SalariePlanningView({
       const res = await acceptDerogation({
         shiftId: derogationTargetShift.id,
         comment,
+        planningVersion: derogationTargetShift.planningVersion,
       });
 
       if (res.success) {
@@ -97,6 +110,7 @@ export function SalariePlanningView({
           text: "Dérogation acceptée avec succès. Le créneau est maintenant publié.",
         });
         setDerogationTargetShift(null);
+        router.refresh();
         onRefresh?.();
       } else {
         setFeedback({
@@ -173,6 +187,10 @@ export function SalariePlanningView({
         onEntryChange={onRefresh}
       />
 
+      <Button className="w-full min-h-14 text-base font-bold" onClick={() => setLeaveOpen(true)}>
+        Demander un CP / RTT / Repos
+      </Button>
+
       {/* Notifications feedback */}
       {feedback && (
         <AlertBanner
@@ -226,33 +244,57 @@ export function SalariePlanningView({
         />
       )}
 
-      {/* Liste chronologique des shifts */}
+      {/* Vue hebdomadaire */}
       <div className="flex flex-col gap-3">
         <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider">
           Mes créneaux de travail
         </h2>
 
-        {shifts.length === 0 ? (
-          <div className="bg-gray-50 border border-dashed border-gray-300 rounded-2xl p-8 text-center flex flex-col items-center justify-center gap-2">
-            <span className="text-3xl">☕</span>
-            <p className="font-semibold text-gray-800 text-sm">Aucun shift planifié</p>
-            <p className="text-xs text-gray-500 max-w-xs">
-              Aucun créneau ne vous est affecté pour cette période. Profitez de votre repos légal !
-            </p>
+        <div className="flex items-center justify-between gap-2">
+          <Button variant="outline" onClick={() => setWeek(addWeeks(week, -1))}>←</Button>
+          <span className="text-sm font-semibold">Semaine du {format(week, "d MMMM yyyy", { locale: fr })}</span>
+          <Button variant="outline" onClick={() => setWeek(addWeeks(week, 1))}>→</Button>
+        </div>
+        <div className="overflow-x-auto">
+          <div className="grid grid-cols-7 gap-2 min-w-[980px]">
+            {Array.from({ length: 7 }, (_, index) => {
+              const day = addDays(week, index);
+              const key = format(day, "yyyy-MM-dd");
+              const dayShifts = shifts.filter((shift) => format(toAppTime(new Date(shift.startTime)), "yyyy-MM-dd") === key);
+              const dayLeaves = leaves.filter((leave) => leave.startDate <= key && leave.endDate >= key);
+              return <div key={key} className="space-y-2 rounded-lg bg-gray-50 p-2">
+                <h3 className="text-sm font-bold capitalize">{format(day, "EEE d MMM", { locale: fr })}</h3>
+                {dayLeaves.map((leave) => <div key={leave.id} className="rounded border border-emerald-300 bg-emerald-50 p-2 text-sm font-semibold">
+                  {leave.type} · {leave.status === "APPROUVE" ? "Validé" : "En attente"}
+                </div>)}
+                {dayShifts.map((shift) => <SalarieShiftCard key={shift.id} shift={shift}
+                  onOpenDerogation={() => setDerogationTargetShift(shift)}
+                  onProposeSwap={() => { window.location.href = `/salarie/bourses?proposeShiftId=${shift.id}`; }} />)}
+                {!dayLeaves.length && !dayShifts.length && <p className="text-xs text-gray-500">Aucun créneau</p>}
+              </div>;
+            })}
           </div>
-        ) : (
-          shifts.map((shift) => (
-            <SalarieShiftCard
-              key={shift.id}
-              shift={shift}
-              onOpenDerogation={() => setDerogationTargetShift(shift)}
-              onProposeSwap={() => {
-                window.location.href = `/salarie/bourses?proposeShiftId=${shift.id}`;
-              }}
-            />
-          ))
-        )}
+        </div>
       </div>
+
+      <Dialog isOpen={leaveOpen} onClose={() => setLeaveOpen(false)} title="Demander un congé ou repos">
+        <form className="space-y-3" onSubmit={(event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          startTransition(async () => {
+            const result = await createLeaveRequest({ type: form.get("type"), startDate: form.get("startDate"), endDate: form.get("endDate"), reason: form.get("reason") });
+            if (result.success) { setLeaveOpen(false); setFeedback({ type: "success", text: "Demande envoyée." }); router.refresh(); }
+            else setFeedback({ type: "error", text: result.error });
+          });
+        }}>
+          <label className="block text-sm">Type<select name="type" className="mt-1 w-full rounded border p-2"><option>CP</option><option>RTT</option><option>REPOS</option></select></label>
+          <label className="block text-sm">Début<input type="date" name="startDate" required className="mt-1 w-full rounded border p-2" /></label>
+          <label className="block text-sm">Fin<input type="date" name="endDate" required className="mt-1 w-full rounded border p-2" /></label>
+          <label className="block text-sm">Motif facultatif<textarea name="reason" maxLength={1000} className="mt-1 w-full rounded border p-2" /></label>
+          {feedback?.type === "error" && <p role="alert" className="text-red-700">{feedback.text}</p>}
+          <Button type="submit" disabled={isPending}>Envoyer la demande</Button>
+        </form>
+      </Dialog>
 
       {/* Dialogue modal d'accord dérogatoire */}
       {derogationTargetShift && (
@@ -261,18 +303,23 @@ export function SalariePlanningView({
           onClose={() => setDerogationTargetShift(null)}
           onConfirm={handleConfirmDerogation}
           isLoading={isPending}
+          leaveAction={derogationTargetShift.leaveAction}
+          planningVersion={derogationTargetShift.planningVersion}
           shiftInfo={{
             dateStr: new Date(derogationTargetShift.startTime).toLocaleDateString("fr-FR", {
               weekday: "long",
               day: "numeric",
               month: "long",
+              timeZone: "Europe/Paris",
             }),
             timeRangeStr: `${new Date(derogationTargetShift.startTime).toLocaleTimeString("fr-FR", {
               hour: "2-digit",
               minute: "2-digit",
+              timeZone: "Europe/Paris",
             })} - ${new Date(derogationTargetShift.endTime).toLocaleTimeString("fr-FR", {
               hour: "2-digit",
               minute: "2-digit",
+              timeZone: "Europe/Paris",
             })}`,
           }}
         />

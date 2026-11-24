@@ -4,17 +4,20 @@ import React, { useState } from "react";
 import { ContradictoryTable, type DiscrepancyItem } from "./contradictory-table";
 import { SwapArbitrationList, type PendingSwapItem } from "./swap-arbitration-list";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LeaveArbitration } from "./leave-arbitration";
 
 interface ArbitrageViewProps {
   discrepancies: DiscrepancyItem[];
   swaps: PendingSwapItem[];
   isLoading?: boolean;
+  leaves?: { id: string; type: string; employee: string; startDate: string; endDate: string; reason: string | null }[];
 }
 
 export function ArbitrageView({
   discrepancies,
   swaps,
   isLoading = false,
+  leaves = [],
 }: ArbitrageViewProps) {
   const [activeTab, setActiveTab] = useState<"discrepancies" | "swaps">("discrepancies");
 
@@ -37,6 +40,7 @@ export function ArbitrageView({
           Validation contradictoire des pointages en écart et décision managériale sur la bourse d&apos;échanges.
         </p>
       </div>
+      <LeaveArbitration leaves={leaves} />
 
       {/* Onglets Desktop */}
       <div className="flex border-b border-slate-200">

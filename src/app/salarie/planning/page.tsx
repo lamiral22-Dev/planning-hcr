@@ -11,11 +11,11 @@ export default async function SalariePlanningPage() {
   }
 
   // Récupération des shifts du salarié
-  const [shifts, replacementRequests] = await Promise.all([
+  const [shifts, replacementRequests, leaves] = await Promise.all([
     prisma.shift.findMany({
     where: {
       userId: user.id,
-      status: { not: "ANNULE" },
+      status: { in: ["PUBLIE", "EN_ATTENTE_DEROGATION"] },
     },
     orderBy: {
       startTime: "asc",
@@ -28,6 +28,10 @@ export default async function SalariePlanningPage() {
         shift: { select: { startTime: true, endTime: true } },
       },
       orderBy: { createdAt: "asc" },
+    }),
+    prisma.leaveRequest.findMany({
+      where: { userId: user.id, status: { in: ["EN_ATTENTE", "APPROUVE"] } },
+      orderBy: { startDate: "asc" },
     }),
   ]);
 
@@ -53,6 +57,12 @@ export default async function SalariePlanningPage() {
         acknowledgedAt: s.acknowledgedAt,
         derogationAcceptedAt: s.derogationAcceptedAt,
         planningVersion: s.planningVersion,
+        leaveAction: s.leaveAction,
+      }))}
+      leaves={leaves.map((leave) => ({
+        id: leave.id, type: leave.type, status: leave.status,
+        startDate: leave.startDate.toISOString().slice(0, 10),
+        endDate: leave.endDate.toISOString().slice(0, 10),
       }))}
       activeTimeEntryId={activeTimeEntry?.id ?? null}
       activeClockInTime={activeTimeEntry?.clockInTime ?? null}

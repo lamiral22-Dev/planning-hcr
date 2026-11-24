@@ -16,7 +16,7 @@ export default async function ManagerPlanningPage({ searchParams }: { searchPara
   const monthStart = startOfMonth(sunday);
   const start = fromAppTime(monthStart < rangeStart ? monthStart : rangeStart);
   const end = fromAppTime(addDays(currentWeek, 14));
-  const [employees, slots, shifts, closures] = await Promise.all([
+  const [employees, slots, shifts, closures, leaves] = await Promise.all([
     prisma.user.findMany({
       where: { role: { in: ["SALARIE", "MANAGER"] }, isActive: true },
       select: { id: true, firstName: true, lastName: true },
@@ -43,6 +43,10 @@ export default async function ManagerPlanningPage({ searchParams }: { searchPara
     prisma.restaurantClosure.findMany({
       where: { date: { gte: new Date(`${format(currentWeek, "yyyy-MM-dd")}T00:00:00Z`), lt: new Date(`${format(addDays(currentWeek, 7), "yyyy-MM-dd")}T00:00:00Z`) } },
       select: { slotId: true, date: true, isClosed: true },
+    }),
+    prisma.leaveRequest.findMany({
+      where: { status: "APPROUVE", startDate: { lte: new Date(`${format(sunday, "yyyy-MM-dd")}T00:00:00Z`) }, endDate: { gte: new Date(`${format(currentWeek, "yyyy-MM-dd")}T00:00:00Z`) } },
+      include: { user: { select: { firstName: true, lastName: true } } },
     }),
   ]);
 
@@ -72,6 +76,11 @@ export default async function ManagerPlanningPage({ searchParams }: { searchPara
         slotId: closure.slotId,
         date: closure.date.toISOString().slice(0, 10),
         closed: closure.isClosed,
+      }))}
+      leaves={leaves.map((leave) => ({
+        id: leave.id, userId: leave.userId, type: leave.type,
+        name: `${leave.user.firstName} ${leave.user.lastName}`,
+        startDate: leave.startDate.toISOString().slice(0, 10), endDate: leave.endDate.toISOString().slice(0, 10),
       }))}
     />
   );

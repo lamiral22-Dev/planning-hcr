@@ -24,6 +24,7 @@ vi.mock("@/lib/prisma", () => ({
     auditLog: {
       create: vi.fn(),
     },
+    leaveRequest: { findMany: vi.fn().mockResolvedValue([]) },
     $queryRaw: vi.fn(),
     $transaction: vi.fn(async (cb: (tx: any) => Promise<any>) => {
       return cb(prisma);
@@ -297,6 +298,7 @@ describe("shift-actions.ts", () => {
         id: "shift-123",
         userId: "salarie-1",
         status: "EN_ATTENTE_DEROGATION",
+        planningVersion: 1,
       } as any);
 
       vi.mocked(prisma.shift.update as any).mockImplementation(async ({ data }: any) => {
@@ -306,6 +308,7 @@ describe("shift-actions.ts", () => {
       const res = await acceptDerogation({
         shiftId: "shift-123",
         comment: "D'accord pour dépanner",
+        planningVersion: 1,
       });
 
       expect(res.success).toBe(true);
@@ -317,6 +320,32 @@ describe("shift-actions.ts", () => {
           }),
         })
       );
+    });
+
+    it("refuse une version périmée sans libérer le créneau", async () => {
+      vi.spyOn(auth, "getCurrentUser").mockResolvedValue({
+        id: "salarie-1", email: "sal@test.com", role: "SALARIE", firstName: "Paul", lastName: "Salarie",
+      });
+      vi.mocked(prisma.shift.findUnique).mockResolvedValue({
+        id: "shift-123", userId: "salarie-1", status: "EN_ATTENTE_DEROGATION",
+        planningVersion: 4, leaveAction: "RELEASE", leaveRequestId: "leave",
+      } as any);
+      expect(await acceptDerogation({ shiftId: "shift-123", planningVersion: 3 })).toMatchObject({ success: false });
+      expect(prisma.shift.update).not.toHaveBeenCalled();
+    });
+
+    it("libère le shift lié au congé uniquement lors de l'accord de son salarié", async () => {
+      vi.spyOn(auth, "getCurrentUser").mockResolvedValue({
+        id: "salarie-1", email: "sal@test.com", role: "SALARIE", firstName: "Paul", lastName: "Salarie",
+      });
+      vi.mocked(prisma.shift.findUnique).mockResolvedValue({
+        id: "shift-123", userId: "salarie-1", status: "EN_ATTENTE_DEROGATION",
+        planningVersion: 4, leaveAction: "RELEASE", leaveRequestId: "leave",
+      } as any);
+      vi.mocked(prisma.shift.update as any).mockImplementation(async ({ data }: any) => ({ id: "shift-123", ...data }));
+      expect(await acceptDerogation({ shiftId: "shift-123", planningVersion: 4 })).toMatchObject({ success: true });
+      expect(prisma.shift.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "ANNULE", derogationAcceptedAt: expect.any(Date) }) }));
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "DEROGATION_ACCEPTED", userId: "salarie-1" }) }));
     });
   });
 });

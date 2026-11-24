@@ -18,6 +18,7 @@ import {
 import { Prisma, type Shift } from "@prisma/client";
 import { addDays, format } from "date-fns";
 import { shiftDatesForDay, toAppTime } from "@/lib/time-utils";
+import { conflictingLeaves, removeLeaveDays, shiftLeaveDays } from "@/lib/leave-utils";
 
 function dailyViolation(reason?: "overlap" | "amplitude" | "rest") {
   if (reason === "overlap") return { error: "Le créneau chevauche un shift déjà existant du salarié.", code: "SHIFT_OVERLAP" };
@@ -46,6 +47,9 @@ export async function createShift(input: ShiftInput): Promise<ActionResult<Shift
     // Récupération des shifts existants du salarié pour contrôler la conformité HCR
     return await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${validated.userId} FOR UPDATE`;
+      if ((await conflictingLeaves(tx, validated.userId, validated.startTime, validated.endTime)).length) {
+        return { success: false, error: "Un congé validé couvre ce créneau.", code: "LEAVE_CONFLICT" };
+      }
       const existingShifts = await tx.shift.findMany({
         where: {
           userId: validated.userId,
@@ -216,6 +220,9 @@ export async function applyMasterTemplate(startDate: Date): Promise<ActionResult
       }
       const results = [];
       for (const item of createdShifts) {
+        if ((await conflictingLeaves(tx, item.userId, item.startTime, item.endTime)).length) {
+          throw new Error("Un congé validé couvre un créneau du planning type.");
+        }
         const existing = await tx.shift.findMany({
           where: { userId: item.userId, status: { not: "ANNULE" } },
           select: { id: true, startTime: true, endTime: true },
@@ -388,6 +395,9 @@ export async function updateShift(
       if (!currentShift) {
         return { success: false, error: "Shift introuvable", code: "NOT_FOUND" };
       }
+      if (currentShift.leaveAction) {
+        return { success: false, error: "Une décision liée à un congé attend l'accord du salarié." };
+      }
 
       const updatedData = {
         userId: input.userId ?? currentShift.userId,
@@ -400,6 +410,9 @@ export async function updateShift(
       const validated = ShiftSchema.parse(updatedData);
       for (const userId of [...new Set([currentShift.userId, validated.userId])].sort()) {
         await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+      }
+      if ((await conflictingLeaves(tx, validated.userId, validated.startTime, validated.endTime)).length) {
+        return { success: false, error: "Un congé validé couvre ce créneau.", code: "LEAVE_CONFLICT" };
       }
 
       // Shifts existants hors celui modifié
@@ -509,6 +522,7 @@ export async function deleteShift(shiftId: string): Promise<ActionResult> {
         include: { _count: { select: { timeEntries: true, shiftSwaps: true, replacementRequests: true } } },
       });
       if (!shift) return { success: false, error: "Shift introuvable", code: "NOT_FOUND" };
+      if (shift.leaveAction) return { success: false, error: "Une décision liée à un congé attend l'accord du salarié." };
       if (shift._count.timeEntries > 0) {
         return { success: false, error: "Impossible de supprimer un shift associé à un pointage.", code: "HAS_TIME_ENTRIES" };
       }
@@ -612,6 +626,7 @@ export async function acknowledgeShift(input: {
 export async function acceptDerogation(input: {
   shiftId: string;
   comment?: string;
+  planningVersion?: number;
 }): Promise<ActionResult> {
   try {
     const user = await getCurrentUser();
@@ -621,27 +636,28 @@ export async function acceptDerogation(input: {
 
     const validated = DerogationAgreementSchema.parse(input);
 
-    const shift = await prisma.shift.findUnique({
-      where: { id: validated.shiftId },
-    });
-
-    if (!shift) {
-      return { success: false, error: "Shift introuvable", code: "NOT_FOUND" };
-    }
-
-    if (user.role === "SALARIE" && shift.userId !== user.id) {
-      return { success: false, error: "Accès refusé", code: "FORBIDDEN" };
-    }
-
     const acceptanceTime = new Date();
 
     const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${user.id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "Shift" WHERE id = ${validated.shiftId} FOR UPDATE`;
+      const shift = await tx.shift.findUnique({ where: { id: validated.shiftId } });
+      if (!shift || shift.userId !== user.id) throw new Error("Créneau introuvable ou accès refusé.");
+      if (shift.status !== "EN_ATTENTE_DEROGATION") throw new Error("Cette dérogation n'est plus en attente.");
+      if (input.planningVersion !== shift.planningVersion) throw new Error("Le planning a changé. Actualisez la page avant de confirmer.");
+      if (shift.leaveAction === "OVERRIDE") {
+        const leaves = await conflictingLeaves(tx, shift.userId, shift.startTime, shift.endTime);
+        if (!leaves.some((leave) => leave.id === shift.leaveRequestId)) throw new Error("Le congé concerné a changé. Actualisez la page.");
+        const { first, last } = shiftLeaveDays(shift.startTime, shift.endTime);
+        for (const leave of leaves) await removeLeaveDays(tx, leave, first, last, user.id, shift.id);
+      }
       const updated = await tx.shift.update({
         where: { id: shift.id },
         data: {
-          status: "PUBLIE",
+          status: shift.leaveAction === "RELEASE" ? "ANNULE" : "PUBLIE",
           derogationAcceptedAt: acceptanceTime,
           derogationComment: validated.comment ?? null,
+          leaveAction: null,
         },
       });
 
@@ -651,15 +667,8 @@ export async function acceptDerogation(input: {
           tableName: "Shift",
           recordId: shift.id,
           userId: user.id,
-          payloadOld: {
-            status: shift.status,
-            derogationAcceptedAt: shift.derogationAcceptedAt,
-          },
-          payloadNew: {
-            status: "PUBLIE",
-            derogationAcceptedAt: acceptanceTime,
-            derogationComment: validated.comment ?? null,
-          },
+          payloadOld: JSON.parse(JSON.stringify(shift)) as Prisma.InputJsonValue,
+          payloadNew: JSON.parse(JSON.stringify(updated)) as Prisma.InputJsonValue,
           timestamp: acceptanceTime,
         },
       });

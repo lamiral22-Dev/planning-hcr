@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { SalariePlanningView } from "../planning/salarie-planning-view";
 import * as shiftActions from "@/actions/shift-actions";
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 vi.mock("@/actions/shift-actions", () => ({
   acknowledgeShift: vi.fn(),
@@ -14,8 +15,7 @@ describe("SalariePlanningView", () => {
   it("affiche l'empty state explicite lorsqu'aucun créneau n'est planifié", () => {
     render(<SalariePlanningView shifts={[]} />);
 
-    expect(screen.getByText(/Aucun shift planifié/i)).toBeDefined();
-    expect(screen.getByText(/Profitez de votre repos légal/i)).toBeDefined();
+    expect(screen.getAllByText(/Aucun créneau/i)).toHaveLength(7);
   });
 
   it("affiche la bannière bloquante de dérogation pour un shift à J < 8 et exige la mention exacte", async () => {
@@ -62,6 +62,7 @@ describe("SalariePlanningView", () => {
       expect(shiftActions.acceptDerogation).toHaveBeenCalledWith({
         shiftId: "late-shift-1",
         comment: undefined,
+        planningVersion: 1,
       });
     });
   });

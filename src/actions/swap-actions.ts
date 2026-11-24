@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { conflictingLeaves } from "@/lib/leave-utils";
 import { getCurrentUser, requireUserWithRoles } from "@/lib/auth";
 import {
   SwapRequestSchema,
@@ -355,6 +356,15 @@ export async function arbitrateShiftSwap(input: {
     // Transaction atomique : Re-vérification HCR + Transfert shift + Reset émargement + Audit
     const result = await prisma.$transaction(async (tx) => {
       // Re-vérification de collision / HCR pour le targetUser
+      await tx.$queryRaw`SELECT id FROM "Shift" WHERE id = ${swap.shiftId} FOR UPDATE`;
+      const currentShift = await tx.shift.findUnique({ where: { id: swap.shiftId } });
+      if (!currentShift || currentShift.leaveAction || currentShift.status !== "PUBLIE" || currentShift.userId !== swap.requesterId) {
+        throw new Error("Le créneau a changé ou attend une décision liée à un congé.");
+      }
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${swap.targetUserId} FOR UPDATE`;
+      if ((await conflictingLeaves(tx, swap.targetUserId, swap.shift.startTime, swap.shift.endTime)).length) {
+        throw new Error("Un congé validé couvre ce créneau.");
+      }
       const targetUserShifts = await tx.shift.findMany({
         where: {
           userId: swap.targetUserId,

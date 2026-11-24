@@ -57,6 +57,7 @@ interface Props {
   slots: RestaurantSlot[];
   shifts: RestaurantShift[];
   closures: RestaurantClosure[];
+  leaves?: { id: string; userId: string; name: string; type: string; startDate: string; endDate: string }[];
 }
 
 function dateKey(date: Date) {
@@ -67,7 +68,7 @@ function CellAlert({ label }: { label: string }) {
   return <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">{label}</span>;
 }
 
-export function PlanningRestaurantView({ weekStart, employees, slots, shifts, closures }: Props) {
+export function PlanningRestaurantView({ weekStart, employees, slots, shifts, closures, leaves = [] }: Props) {
   const router = useRouter();
   const center = useMemo(() => parse(weekStart, "yyyy-MM-dd", new Date()), [weekStart]);
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
@@ -79,6 +80,7 @@ export function PlanningRestaurantView({ weekStart, employees, slots, shifts, cl
   const [duplicateStart, setDuplicateStart] = useState(() => format(toAppTime(new Date()), "yyyy-MM-dd"));
   const [duplicateEnd, setDuplicateEnd] = useState(() => format(endOfMonth(toAppTime(new Date())), "yyyy-MM-dd"));
   const [sourceWeek, setSourceWeek] = useState(weekStart);
+  const [leaveConflict, setLeaveConflict] = useState<{ slot: RestaurantSlot; day: Date; employeeId: string } | null>(null);
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(center, index)), [center]);
   const employeeById = useMemo(() => new Map(employees.map((employee) => [employee.id, employee])), [employees]);
@@ -128,12 +130,23 @@ export function PlanningRestaurantView({ weekStart, employees, slots, shifts, cl
     router.refresh();
   };
 
-  const assign = (slot: RestaurantSlot, day: Date, employeeId: string) => {
+  const assign = (slot: RestaurantSlot, day: Date, employeeId: string, forceOverrideLeave = false) => {
+    const times = shiftDatesForDay(dateKey(day), slot.startTime, slot.endTime);
+    const first = dateKey(toAppTime(times.startTime));
+    const last = dateKey(toAppTime(new Date(times.endTime.getTime() - 1)));
+    if (!forceOverrideLeave && leaves.some((leave) => leave.userId === employeeId && leave.startDate <= last && leave.endDate >= first)) {
+      setLeaveConflict({ slot, day, employeeId });
+      return;
+    }
     startTransition(async () => {
-      const result = await assignRestaurantSlot({ slotId: slot.id, userId: employeeId, date: dateKey(day) });
-      if (!result.success) setFeedback(result.error);
+      const result = await assignRestaurantSlot({ slotId: slot.id, userId: employeeId, date: dateKey(day), forceOverrideLeave });
+      if (!result.success) {
+        setFeedback(result.error);
+        if (result.code === "LEAVE_CONFLICT") setLeaveConflict({ slot, day, employeeId });
+      }
       else if ("pending" in result.data && result.data.pending) setFeedback("Remplacement tardif soumis à l'accord du salarié actuellement affecté.");
       else setFeedback("Affectation enregistrée.");
+      if (result.success) setLeaveConflict(null);
       setSelectedEmployee(null);
       router.refresh();
     });
@@ -347,6 +360,14 @@ export function PlanningRestaurantView({ weekStart, employees, slots, shifts, cl
               </tr>
             ))}
             <tr>
+              <th colSpan={2} className="border bg-emerald-50 p-2">Absences / Congés validés</th>
+              {days.map((day) => <td key={dateKey(day)} className="border bg-emerald-50 p-1 align-top">
+                {leaves.filter((leave) => leave.startDate <= dateKey(day) && leave.endDate >= dateKey(day)).map((leave) =>
+                  <div key={leave.id} className="rounded bg-emerald-100 p-1 font-semibold text-emerald-900">{leave.type} · {leave.name}</div>
+                )}
+              </td>)}
+            </tr>
+            <tr>
               <td colSpan={2} className="border bg-white p-2">
                 <Button variant="outline" className="h-auto w-full whitespace-normal" onClick={() => setEditingSlot({ id: "", name: "", startTime: "11:00", endTime: "15:00", closedDays: [] })}>+ Ajouter une ligne de créneau</Button>
               </td>
@@ -355,6 +376,17 @@ export function PlanningRestaurantView({ weekStart, employees, slots, shifts, cl
           </tbody>
         </table>
       </div>
+
+      <Dialog isOpen={Boolean(leaveConflict)} onClose={() => setLeaveConflict(null)} title="Congé validé sur ce créneau">
+        {leaveConflict && <div className="space-y-3">
+          <p>Cette affectation modifiera le congé sur les jours concernés. Si elle est tardive, le congé reste actif jusqu&apos;à l&apos;accord du salarié.</p>
+          {feedback && <p role="status">{feedback}</p>}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setLeaveConflict(null)}>Maintenir le congé</Button>
+            <Button disabled={pending} onClick={() => assign(leaveConflict.slot, leaveConflict.day, leaveConflict.employeeId, true)}>Affecter le shift (annuler le congé sur ce jour)</Button>
+          </div>
+        </div>}
+      </Dialog>
 
       {shifts.filter((shift) => {
         const day = dateKey(toAppTime(new Date(shift.startTime)));

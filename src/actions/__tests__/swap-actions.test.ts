@@ -27,6 +27,8 @@ vi.mock("@/lib/prisma", () => ({
     auditLog: {
       create: vi.fn(),
     },
+    leaveRequest: { findMany: vi.fn().mockResolvedValue([]) },
+    $queryRaw: vi.fn(),
     $transaction: vi.fn(async (cb: (tx: any) => Promise<any>) => {
       return cb(prisma);
     }),
@@ -272,6 +274,7 @@ describe("swap-actions.ts", () => {
       } as any);
 
       vi.mocked(prisma.shift.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.shift.findUnique).mockResolvedValue({ ...existingShift, status: "PUBLIE", leaveAction: null } as any);
       vi.mocked(prisma.shift.update as any).mockImplementation(async ({ data }: any) => {
         return { ...existingShift, ...data };
       });
