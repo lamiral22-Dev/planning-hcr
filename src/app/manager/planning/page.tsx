@@ -2,7 +2,7 @@ import { addDays, format, isValid, parse, startOfMonth, startOfWeek, subDays } f
 import { prisma } from "@/lib/prisma";
 import { PlanningRestaurantView } from "@/components/features/manager/planning/planning-restaurant-view";
 import { fromAppTime, toAppTime } from "@/lib/time-utils";
-import { accruedLeaveDays, countLeaveDays } from "@/lib/leave-utils";
+import { countLeaveDays, leaveKey, remainingLeaveDays } from "@/lib/leave-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -55,18 +55,22 @@ export default async function ManagerPlanningPage({ searchParams }: { searchPara
     }),
   ]);
 
-  const takenByEmployee = new Map<string, number>();
+  const leavesByEmployee = new Map<string, { startDate: string; endDate: string }[]>();
   for (const leave of approvedCpLeaves) {
-    takenByEmployee.set(leave.userId, (takenByEmployee.get(leave.userId) ?? 0) + countLeaveDays(leave.startDate, leave.endDate));
+    const entries = leavesByEmployee.get(leave.userId) ?? [];
+    entries.push({ startDate: leaveKey(leave.startDate), endDate: leaveKey(leave.endDate) });
+    leavesByEmployee.set(leave.userId, entries);
   }
+  const balanceDate = format(currentWeek, "yyyy-MM-dd");
   return (
     <PlanningRestaurantView
       weekStart={format(currentWeek, "yyyy-MM-dd")}
       employees={employees.map((employee) => ({
         id: employee.id,
         name: `${employee.firstName} ${employee.lastName}`,
-        cpTakenDays: takenByEmployee.get(employee.id) ?? 0,
-        cpRemainingDays: Math.max(0, accruedLeaveDays(employee.createdAt) + employee.cpAdjustment - (takenByEmployee.get(employee.id) ?? 0)),
+        cpTakenDays: (leavesByEmployee.get(employee.id) ?? []).filter((leave) => leave.startDate <= balanceDate)
+          .reduce((days, leave) => days + countLeaveDays(leave.startDate, leave.endDate), 0),
+        cpRemainingDays: Math.max(0, remainingLeaveDays(employee.createdAt, employee.cpAdjustment, leavesByEmployee.get(employee.id) ?? [], balanceDate)),
       }))}
       slots={slots}
       shifts={shifts.map((shift) => ({

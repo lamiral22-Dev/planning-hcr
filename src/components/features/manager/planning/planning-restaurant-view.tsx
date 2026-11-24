@@ -19,6 +19,7 @@ import { calculateRestaurantRecap } from "@/lib/restaurant-recap";
 import { shiftDatesForDay, toAppTime, fromAppTime } from "@/lib/time-utils";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { getFrenchPublicHolidays } from "@/lib/french-holidays";
 
 export interface RestaurantEmployee {
   id: string;
@@ -277,6 +278,8 @@ export function PlanningRestaurantView({ weekStart, employees, slots, shifts, cl
                 <th key={dateKey(day)} className="border px-1 py-2 text-center">
                   <div>{format(day, "EEE", { locale: fr })}</div>
                   <div className="font-semibold">{format(day, "dd/MM")}</div>
+                  {getFrenchPublicHolidays(day.getFullYear()).filter((holiday) => holiday.date === dateKey(day)).map((holiday) =>
+                    <div key={holiday.date} className="text-[10px] font-medium text-amber-700">Férié · {holiday.name}</div>)}
                 </th>
               ))}
             </tr>

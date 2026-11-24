@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, it, vi } from "vitest";
-import { accruedLeaveDays, conflictingLeaves, countLeaveDays, leaveDate, leaveInterval, removeLeaveDays, shiftLeaveDays } from "@/lib/leave-utils";
+import { accruedLeaveDays, canReserveLeave, conflictingLeaves, countLeaveDays, leaveDate, leaveInterval, remainingLeaveDays, removeLeaveDays, shiftLeaveDays } from "@/lib/leave-utils";
 import { shiftDatesForDay } from "@/lib/time-utils";
 
 describe("congés et jours civils de Paris", () => {
@@ -11,11 +11,26 @@ describe("congés et jours civils de Paris", () => {
     expect(countLeaveDays("2026-04-06", "2026-04-06")).toBe(0);
   });
 
-  it("acquiert 2,5 jours par mois civil complet et prorate le premier mois", () => {
+  it("crédite 2,5 jours chaque premier du mois après l'embauche", () => {
     expect(accruedLeaveDays(new Date("2026-01-16T00:00:00Z"), new Date("2026-01-30T00:00:00Z"))).toBe(0);
-    expect(accruedLeaveDays(new Date("2026-01-16T00:00:00Z"), new Date("2026-01-31T00:00:00Z"))).toBeCloseTo(2.5 * 16 / 31);
-    expect(accruedLeaveDays(new Date("2026-01-16T00:00:00Z"), new Date("2026-03-01T00:00:00Z"))).toBeCloseTo(2.5 * 16 / 31 + 2.5);
-    expect(accruedLeaveDays(new Date("2026-02-01T00:00:00Z"), new Date("2026-04-01T00:00:00Z"))).toBe(5);
+    expect(accruedLeaveDays(new Date("2026-01-16T00:00:00Z"), new Date("2026-01-31T00:00:00Z"))).toBe(0);
+    expect(accruedLeaveDays(new Date("2026-01-16T00:00:00Z"), new Date("2026-02-01T00:00:00Z"))).toBe(2.5);
+    expect(accruedLeaveDays(new Date("2026-01-16T00:00:00Z"), new Date("2026-03-01T00:00:00Z"))).toBe(5);
+    expect(accruedLeaveDays(new Date("2026-02-01T00:00:00Z"), new Date("2026-04-01T00:00:00Z"))).toBe(7.5);
+  });
+
+  it("projette les droits au début du congé et protège les réservations ultérieures", () => {
+    const hire = new Date("2026-11-02T10:00:00Z");
+    expect(remainingLeaveDays(hire, 0, [], "2026-11-30")).toBe(0);
+    expect(remainingLeaveDays(hire, 0, [], "2026-12-01")).toBe(2.5);
+    expect(canReserveLeave(hire, 0, [], { startDate: "2026-11-30", endDate: "2026-11-30" })).toBe(false);
+    expect(canReserveLeave(hire, 0, [], { startDate: "2026-12-01", endDate: "2026-12-02" })).toBe(true);
+    expect(canReserveLeave(hire, 0, [], { startDate: "2026-12-01", endDate: "2026-12-03" })).toBe(false);
+    const future = [{ startDate: "2026-12-10", endDate: "2026-12-11" }];
+    expect(canReserveLeave(hire, 0, future, { startDate: "2026-12-01", endDate: "2026-12-01" })).toBe(false);
+    expect(remainingLeaveDays(hire, 0, future, "2026-11-30")).toBe(0);
+    expect(remainingLeaveDays(hire, 0, [{ startDate: "2026-12-01", endDate: "2026-12-02" }], "2026-12-01")).toBe(2.5);
+    expect(remainingLeaveDays(hire, 0, [{ startDate: "2026-12-01", endDate: "2026-12-02" }], "2026-12-02")).toBe(1.5);
   });
 
   it("inclut les deux jours d'un service de nuit et respecte le changement d'heure", () => {

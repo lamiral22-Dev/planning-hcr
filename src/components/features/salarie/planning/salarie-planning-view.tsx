@@ -17,7 +17,8 @@ import { fr } from "date-fns/locale";
 import { toAppTime } from "@/lib/time-utils";
 import { Dialog } from "@/components/ui/dialog";
 import { useRouter } from "next/navigation";
-import { countLeaveDays } from "@/lib/leave-utils";
+import { canReserveLeave, countLeaveDays, remainingLeaveDays } from "@/lib/leave-utils";
+import { getFrenchPublicHolidays } from "@/lib/french-holidays";
 
 export interface SalarieShiftData {
   id: string;
@@ -39,7 +40,7 @@ export interface SalariePlanningViewProps {
   onRefresh?: () => void;
   replacementRequests?: { id: string; proposedEmployee: string; startTime: Date; endTime: Date }[];
   leaves?: { id: string; type: string; status: string; startDate: string; endDate: string }[];
-  cpRemainingDays?: number;
+  cpBalance?: { hireDate: string; adjustment: number };
 }
 
 export function SalariePlanningView({
@@ -50,7 +51,7 @@ export function SalariePlanningView({
   onRefresh,
   replacementRequests = [],
   leaves = [],
-  cpRemainingDays = 0,
+  cpBalance,
 }: SalariePlanningViewProps) {
   const router = useRouter();
   const [periodStart, setPeriodStart] = useState(() => startOfDay(toAppTime(new Date())));
@@ -72,7 +73,14 @@ export function SalariePlanningView({
   const requestedLeaveDays = leaveStart && leaveEnd && leaveEnd >= leaveStart
     ? countLeaveDays(leaveStart, leaveEnd)
     : 0;
-  const insufficientCp = leaveType === "CP" && (cpRemainingDays <= 0 || cpRemainingDays < requestedLeaveDays);
+  const reservations = leaves.filter((leave) => leave.type === "CP");
+  const balanceDate = leaveStart || todayKey;
+  const hireDate = cpBalance ? new Date(cpBalance.hireDate) : null;
+  const cpRemainingDays = hireDate ? remainingLeaveDays(hireDate, cpBalance!.adjustment, reservations, balanceDate) : 0;
+  const insufficientCp = leaveType === "CP" && (cpRemainingDays <= 0 ||
+    (leaveStart && leaveEnd && leaveEnd >= leaveStart && hireDate
+      ? !canReserveLeave(hireDate, cpBalance!.adjustment, reservations, { startDate: leaveStart, endDate: leaveEnd })
+      : cpRemainingDays < requestedLeaveDays));
   const currentOrNextShift =
     shifts.find(
       (s) => new Date(s.endTime) >= now && s.status !== "ANNULE" && s.leaveAction !== "OVERRIDE"
@@ -281,10 +289,12 @@ export function SalariePlanningView({
               const key = format(day, "yyyy-MM-dd");
               const dayShifts = shifts.filter((shift) => format(toAppTime(new Date(shift.startTime)), "yyyy-MM-dd") === key);
               const dayLeaves = leaves.filter((leave) => leave.startDate <= key && leave.endDate >= key);
+              const holiday = getFrenchPublicHolidays(day.getFullYear()).find((item) => item.date === key);
               return <li key={key} className={`flex gap-3 rounded-lg p-2 ${key === todayKey ? "bg-blue-50 ring-1 ring-blue-200" : "bg-gray-50"}`}>
                 <h3 className="w-20 shrink-0 text-sm font-bold capitalize">
                   {format(day, "EEE d MMM", { locale: fr })}
                   {key === todayKey && <span className="block text-xs font-medium normal-case text-blue-700">Aujourd&apos;hui</span>}
+                  {holiday && <span className="block text-xs font-medium normal-case text-amber-700">Férié · {holiday.name}</span>}
                 </h3>
                 <div className="min-w-0 flex-1 space-y-2">
                   {dayLeaves.map((leave) => <div key={leave.id} className={`rounded border p-2 text-sm font-semibold ${leave.status === "APPROUVE" ? "border-emerald-300 bg-emerald-50" : "border-orange-300 bg-orange-50"}`}>
@@ -315,7 +325,7 @@ export function SalariePlanningView({
             <option value="AUTRE_MOTIF">CP autre motif (Décès, mariage, événement familial...)</option>
           </select></label>
           <div className="rounded border border-blue-200 bg-blue-50 p-3 font-semibold text-blue-900">
-            CP restants : {cpRemainingDays.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} jours ·
+            CP restants à la date choisie : {Math.max(0, cpRemainingDays).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} jours ·
             {" "}Période sélectionnée : {requestedLeaveDays} jour(s) décompté(s)
           </div>
           <label className="block text-sm">Début<input type="date" name="startDate" required value={leaveStart} onChange={(event) => setLeaveStart(event.target.value)} className="mt-1 w-full rounded border p-2" /></label>

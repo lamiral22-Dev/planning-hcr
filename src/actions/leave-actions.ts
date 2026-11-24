@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUserWithRoles } from "@/lib/auth";
-import { accruedLeaveDays, countLeaveDays, leaveDate, leaveInterval } from "@/lib/leave-utils";
+import { canReserveLeave, leaveDate, leaveInterval, leaveKey } from "@/lib/leave-utils";
 import { CreateLeaveSchema, ReviewLeaveSchema } from "@/schemas/leave";
 
 function json(value: unknown): Prisma.InputJsonValue {
@@ -31,14 +31,12 @@ export async function createLeaveRequest(input: unknown) {
       });
       if (existing) throw new Error("Une demande existe déjà sur cette période.");
       if (data.type === "CP") {
-        const [employee, approvedLeaves] = await Promise.all([
+        const [employee, reservedLeaves] = await Promise.all([
           tx.user.findUniqueOrThrow({ where: { id: user.id }, select: { createdAt: true, cpAdjustment: true } }),
-          tx.leaveRequest.findMany({ where: { userId: user.id, type: "CP", status: "APPROUVE" } }),
+          tx.leaveRequest.findMany({ where: { userId: user.id, type: "CP", status: { in: ["EN_ATTENTE", "APPROUVE"] } } }),
         ]);
-        const taken = approvedLeaves.reduce((days, leave) => days + countLeaveDays(leave.startDate, leave.endDate), 0);
-        const remaining = Math.max(0, accruedLeaveDays(employee.createdAt) + employee.cpAdjustment - taken);
-        const requested = countLeaveDays(data.startDate, data.endDate);
-        if (remaining <= 0 || remaining < requested) {
+        const reservations = reservedLeaves.map((leave) => ({ startDate: leaveKey(leave.startDate), endDate: leaveKey(leave.endDate) }));
+        if (!canReserveLeave(employee.createdAt, employee.cpAdjustment, reservations, data)) {
           throw new Error("Solde de CP insuffisant : la prise de CP anticipés n'est pas autorisée.");
         }
       }
@@ -68,6 +66,16 @@ export async function reviewLeaveRequest(input: unknown) {
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${initial.userId} FOR UPDATE`;
       const leave = await tx.leaveRequest.findUniqueOrThrow({ where: { id: data.id } });
       if (leave.status !== "EN_ATTENTE") throw new Error("Cette demande a déjà été traitée.");
+      if (data.approved && leave.type === "CP") {
+        const [employee, reservedLeaves] = await Promise.all([
+          tx.user.findUniqueOrThrow({ where: { id: leave.userId }, select: { createdAt: true, cpAdjustment: true } }),
+          tx.leaveRequest.findMany({ where: { userId: leave.userId, id: { not: leave.id }, type: "CP", status: { in: ["EN_ATTENTE", "APPROUVE"] } } }),
+        ]);
+        const reservations = reservedLeaves.map((item) => ({ startDate: leaveKey(item.startDate), endDate: leaveKey(item.endDate) }));
+        if (!canReserveLeave(employee.createdAt, employee.cpAdjustment, reservations, {
+          startDate: leaveKey(leave.startDate), endDate: leaveKey(leave.endDate),
+        })) throw new Error("Solde de CP insuffisant : la prise de CP anticipés n'est pas autorisée.");
+      }
       const interval = leaveInterval(leave);
       const conflicts = data.approved ? await tx.shift.findMany({
         where: {
