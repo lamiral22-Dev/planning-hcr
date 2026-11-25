@@ -14,7 +14,7 @@ import { fr } from "date-fns/locale";
 import { useRouter } from "next/navigation";
 import { archiveRestaurantSlot, assignRestaurantSlot, duplicateRestaurantWeek, saveRestaurantSlot, toggleRestaurantClosure } from "@/actions/restaurant-planning-actions";
 import { deleteShift, publishQuinzaine, updateShift } from "@/actions/shift-actions";
-import { calculateWeeklyHours, dailyRestViolationShiftIds } from "@/lib/hcr-rules";
+import { calculateWeeklyHours, dailyRestViolationShiftIds, HCR_RULES } from "@/lib/hcr-rules";
 import { calculateRestaurantRecap } from "@/lib/restaurant-recap";
 import { shiftDatesForDay, toAppTime, fromAppTime } from "@/lib/time-utils";
 import { Button } from "@/components/ui/button";
@@ -355,7 +355,7 @@ export function PlanningRestaurantView({ weekStart, employees, slots, shifts, cl
                               <span className="flex flex-wrap justify-center gap-1">
                                 {((assigned.isLateModification && !assigned.derogationAcceptedAt) || assigned.pendingReplacements.length > 0) && <CellAlert label={`Dérog. J < 8${assigned.pendingReplacements.length ? " · accord salarié requis" : ""}`} />}
                                 {dailyRestViolation && <CellAlert label="Repos < 11h" />}
-                                {weeklyHours > 48 && <CellAlert label="> 48h/sem" />}
+                                {weeklyHours > HCR_RULES.MAX_WEEKLY_HOURS && <CellAlert label="> 48h/sem" />}
                               </span>
                             </div>
                           : <button type="button" aria-label={`Affecter ou fermer ${slot.name} le ${format(day, "dd/MM")}`} className="min-h-12 w-full text-slate-300">{selectedEmployee ? "Affecter" : "＋ / X"}</button>}

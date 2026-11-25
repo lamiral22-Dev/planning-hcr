@@ -25,7 +25,7 @@ export function PwaInstallPrompt() {
       typeof window.matchMedia === "function" &&
       window.matchMedia("(display-mode: standalone)").matches;
     const isNavStandalone =
-      (navigator as unknown as { standalone?: boolean }).standalone === true;
+      "standalone" in navigator && navigator.standalone === true;
     const checkStandalone = Boolean(isMediaStandalone || isNavStandalone);
 
     setIsStandalone(checkStandalone);

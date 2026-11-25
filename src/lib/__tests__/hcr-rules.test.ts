@@ -128,6 +128,22 @@ describe("Moteur de règles HCR - src/lib/hcr-rules.ts", () => {
   });
 
   describe("2. Plafond hebdomadaire (48h max sur semaine civile)", () => {
+    it("refuse un dépassement inférieur à la précision d'affichage", () => {
+      const start = new Date("2026-01-05T00:00:00+01:00");
+      const exactly = { startTime: start, endTime: new Date(start.getTime() + 48 * 3600000) };
+      expect(validateWeeklyHours([], exactly).isValid).toBe(true);
+      expect(validateWeeklyHours([], { ...exactly, endTime: new Date(exactly.endTime.getTime() + 1) }).isValid).toBe(false);
+    });
+
+    it("répartit exactement un service à la frontière de semaine, même au changement d'heure", () => {
+      const shift = {
+        startTime: new Date("2026-03-29T23:59:59.999+02:00"),
+        endTime: new Date("2026-03-30T00:00:00.001+02:00"),
+      };
+      expect(calculateWeeklyHours([shift], shift.startTime)).toBe(1 / 3600000);
+      expect(calculateWeeklyHours([shift], shift.endTime)).toBe(1 / 3600000);
+    });
+
     // Semaine civile du lundi 6 janvier 2025 au dimanche 12 janvier 2025
     it("calcule avec exactitude les heures cumulées sur la semaine civile", () => {
       const shifts = [

@@ -8,6 +8,7 @@ import {
   differenceInMilliseconds,
   startOfWeek,
   endOfWeek,
+  addDays,
   format,
   eachDayOfInterval,
   max as dateMax,
@@ -175,7 +176,7 @@ export function dailyRestViolationShiftIds(
 }
 
 /**
- * Calcule les bornes d'une semaine civile (du lundi 00h00 au dimanche 23h59:59.999) dans un fuseau donné.
+ * Calcule les bornes d'une semaine civile, fin exclusive, dans un fuseau donné.
  */
 function getCivilWeekBounds(targetDate: Date, timeZone: string = APP_TIMEZONE) {
   // Convert targetDate to the target timezone
@@ -183,7 +184,7 @@ function getCivilWeekBounds(targetDate: Date, timeZone: string = APP_TIMEZONE) {
 
   // Semaine civile : lundi (weekStartsOn: 1) à dimanche
   const startOfZonedWeek = startOfWeek(zonedDate, { weekStartsOn: 1 });
-  const endOfZonedWeek = endOfWeek(zonedDate, { weekStartsOn: 1 });
+  const endOfZonedWeek = addDays(startOfZonedWeek, 7);
 
   // Convert back to absolute UTC Dates
   const utcStart = fromZonedTime(startOfZonedWeek, timeZone);
@@ -194,7 +195,7 @@ function getCivilWeekBounds(targetDate: Date, timeZone: string = APP_TIMEZONE) {
 
 /**
  * 2. Plafond hebdomadaire (48h)
- * Calcule le cumul d'heures sur la semaine civile (lundi 00:00 au dimanche 23:59 dans le fuseau spécifié).
+ * Calcule le cumul exact d'heures sur la semaine civile dans le fuseau spécifié.
  * Gère avec exactitude les shifts chevauchant deux semaines civiles.
  */
 export function calculateWeeklyHours(
@@ -219,7 +220,7 @@ export function calculateWeeklyHours(
     }
   }
 
-  return Number((totalMs / (1000 * 60 * 60)).toFixed(2));
+  return totalMs / (1000 * 60 * 60);
 }
 
 /**
@@ -248,7 +249,7 @@ export function validateWeeklyHours(
 
   return {
     isValid: maxFoundHours <= maxHours,
-    totalHours: maxFoundHours,
+    totalHours: Number(maxFoundHours.toFixed(2)),
     remainingHours: remaining,
   };
 }

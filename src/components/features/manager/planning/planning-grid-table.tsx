@@ -6,7 +6,7 @@ import { fr } from "date-fns/locale";
 import { ManagerShiftBadge } from "./manager-shift-badge";
 import { isOvernightTime, toAppTime } from "@/lib/time-utils";
 import type { MasterTemplateItem } from "./master-template-modal";
-import { calculateWeeklyHours } from "@/lib/hcr-rules";
+import { calculateWeeklyHours, HCR_RULES } from "@/lib/hcr-rules";
 import { addDays } from "date-fns";
 import { fromAppTime } from "@/lib/time-utils";
 import { getFrenchPublicHolidays } from "@/lib/french-holidays";
@@ -79,7 +79,7 @@ export function PlanningGridTable({
 
     return {
       totalHours: (totalMinutes / 60).toFixed(1),
-      isOver48h: [days[0], days[7]].some((day) => day && calculateWeeklyHours(empShifts, fromAppTime(day)) > 48),
+      isOver48h: [days[0], days[7]].some((day) => day && calculateWeeklyHours(empShifts, fromAppTime(day)) > HCR_RULES.MAX_WEEKLY_HOURS),
     };
   };
 
