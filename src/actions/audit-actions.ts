@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireUserWithRoles } from "@/lib/auth";
-import { AuditQuerySchema, type AuditQueryInput } from "@/schemas/validations";
+import { AuditQuerySchema, IdSchema, type AuditQueryInput } from "@/schemas/validations";
 import type { Prisma } from "@prisma/client";
 
 export type ActionResult<T = unknown> =
@@ -104,6 +104,7 @@ export async function getAuditLogById(id: string): Promise<ActionResult<AuditLog
   try {
     await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
 
+    id = IdSchema.parse(id);
     const log = await prisma.auditLog.findUnique({
       where: { id },
       include: {

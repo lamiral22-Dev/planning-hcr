@@ -24,6 +24,7 @@ vi.mock("@/lib/prisma", () => ({
     auditLog: {
       create: vi.fn(),
     },
+    $queryRaw: vi.fn(),
     $transaction: vi.fn(async (cb: (tx: any) => Promise<any>) => {
       return cb(prisma);
     }),
@@ -88,6 +89,27 @@ describe("time-actions.ts", () => {
   });
 
   describe("clockOut", () => {
+    it("refuse de remplacer une déclaration brute déjà enregistrée", async () => {
+      vi.spyOn(auth, "getCurrentUser").mockResolvedValue({
+        id: "sal-1", email: "sal@test.com", role: "SALARIE", firstName: "Lucas", lastName: "Chef",
+      });
+      vi.mocked(prisma.timeEntry.findUnique).mockResolvedValue({
+        id: "entry-123", userId: "sal-1", rawClockOutTime: new Date("2026-01-01T10:00:00Z"),
+      } as any);
+
+      expect(await clockOut({ timeEntryId: "entry-123" })).toMatchObject({ success: false, code: "ALREADY_CLOSED" });
+      expect(prisma.timeEntry.update).not.toHaveBeenCalled();
+      expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    });
+
+    it("rejette un identifiant de pointage invalide avant toute écriture", async () => {
+      vi.spyOn(auth, "getCurrentUser").mockResolvedValue({
+        id: "sal-1", email: "sal@test.com", role: "SALARIE", firstName: "Lucas", lastName: "Chef",
+      });
+      expect((await clockOut({ timeEntryId: "" })).success).toBe(false);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
     it("calcule automatiquement l'arrondi au quart d'heure et enregistre le motif en cas d'écart", async () => {
       vi.spyOn(auth, "getCurrentUser").mockResolvedValue({
         id: "sal-1",

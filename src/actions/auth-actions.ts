@@ -5,20 +5,16 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { isDemoModeEnabled } from "@/lib/demo-mode";
 import { verifyPassword } from "@/lib/password";
-import { z } from "zod";
-
-const credentialsSchema = z.object({
-  email: z.string().email("Adresse email invalide"),
-  password: z.string().min(1, "Mot de passe requis"),
-});
+import { CredentialsSchema, EmailSchema } from "@/schemas/validations";
 
 export async function quickLoginByEmail(email: string) {
   if (!isDemoModeEnabled()) {
     throw new Error("FORBIDDEN: La connexion rapide en 1 clic est désactivée en environnement de production.");
   }
 
+  const validatedEmail = EmailSchema.parse(email);
   const user = await prisma.user.findUnique({
-    where: { email },
+    where: { email: validatedEmail },
   });
 
   if (!user || !user.isActive) {
@@ -46,7 +42,7 @@ export async function loginWithCredentials(
   const emailRaw = formData.get("email");
   const passwordRaw = formData.get("password");
 
-  const validation = credentialsSchema.safeParse({
+  const validation = CredentialsSchema.safeParse({
     email: typeof emailRaw === "string" ? emailRaw.trim() : "",
     password: typeof passwordRaw === "string" ? passwordRaw : "",
   });

@@ -6,6 +6,7 @@ import {
   CreateUserSchema,
   UpdateUserSchema,
   ToggleUserStatusSchema,
+  UserFilterSchema,
   type CreateUserInput,
   type UpdateUserInput,
   type ToggleUserStatusInput,
@@ -41,6 +42,7 @@ export async function getUsers(filter?: {
 }): Promise<ActionResult<UserListItem[]>> {
   try {
     await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
+    filter = UserFilterSchema.optional().parse(filter);
 
     const where: Prisma.UserWhereInput = {};
 

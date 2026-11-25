@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUserWithRoles } from "@/lib/auth";
 import { canReserveLeave, leaveDate, leaveInterval, leaveKey } from "@/lib/leave-utils";
-import { CreateLeaveSchema, ReviewLeaveSchema } from "@/schemas/leave";
+import { CreateLeaveSchema, ReviewLeaveSchema } from "@/schemas/validations";
 
 function json(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
