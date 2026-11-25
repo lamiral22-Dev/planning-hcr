@@ -6,6 +6,9 @@ import {
   ArbitrateTimeEntrySchema,
   type ArbitrateTimeEntryInput,
   MissedClockInSchema,
+  ClockInInputSchema,
+  ClockOutInputSchema,
+  OperationalStatusSchema,
   type MissedClockInInput,
 } from "@/schemas/validations";
 import { roundClockOutTime } from "@/lib/hcr-rules";
@@ -29,6 +32,7 @@ export async function clockIn(input?: {
     if (!user) {
       return { success: false, error: "UNAUTHORIZED", code: "UNAUTHORIZED" };
     }
+    input = ClockInInputSchema.parse(input);
 
     // Règle de sécurité stricte : l'identité du salarié est déduite de la session serveur
     const targetUserId = input?.userId ?? user.id;
@@ -88,27 +92,23 @@ export async function clockOut(input: {
     if (!user) {
       return { success: false, error: "UNAUTHORIZED", code: "UNAUTHORIZED" };
     }
+    input = ClockOutInputSchema.parse(input);
 
-    const currentEntry = await prisma.timeEntry.findUnique({
-      where: { id: input.timeEntryId },
-      include: { shift: true },
-    });
-
-    if (!currentEntry) {
-      return { success: false, error: "Pointage introuvable", code: "NOT_FOUND" };
-    }
-
-    if (user.role === "SALARIE" && currentEntry.userId !== user.id) {
-      return { success: false, error: "Accès refusé", code: "FORBIDDEN" };
-    }
-
-    // Horodatage système strict inviolable
-    const serverClockOutTime = new Date();
-
-    // Arrondi légal au quart d'heure standardisé (15 minutes en mode 'nearest')
-    const roundedClockOut = roundClockOutTime(serverClockOutTime, 15, "nearest");
-
-    const result = await prisma.$transaction(async (tx) => {
+    return await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "TimeEntry" WHERE id = ${input.timeEntryId} FOR UPDATE`;
+      const currentEntry = await tx.timeEntry.findUnique({
+        where: { id: input.timeEntryId },
+        include: { shift: true },
+      });
+      if (!currentEntry) return { success: false, error: "Pointage introuvable", code: "NOT_FOUND" };
+      if (user.role === "SALARIE" && currentEntry.userId !== user.id) {
+        return { success: false, error: "Accès refusé", code: "FORBIDDEN" };
+      }
+      if (currentEntry.rawClockOutTime != null) {
+        return { success: false, error: "Ce pointage a déjà été clôturé.", code: "ALREADY_CLOSED" };
+      }
+      const serverClockOutTime = new Date();
+      const roundedClockOut = roundClockOutTime(serverClockOutTime, 15, "nearest");
       const updated = await tx.timeEntry.update({
         where: { id: input.timeEntryId },
         data: {
@@ -130,10 +130,8 @@ export async function clockOut(input: {
         },
       });
 
-      return updated;
+      return { success: true, data: updated };
     });
-
-    return { success: true, data: result };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Erreur inconnue";
     return { success: false, error: message };
@@ -153,6 +151,7 @@ export async function recordOperationalStatus(
 ): Promise<ActionResult> {
   try {
     const manager = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
+    ({ shiftId, qualification, reason } = OperationalStatusSchema.parse({ shiftId, qualification, reason }));
 
     const shift = await prisma.shift.findUnique({
       where: { id: shiftId },

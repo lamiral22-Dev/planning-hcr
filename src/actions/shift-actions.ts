@@ -6,6 +6,10 @@ import {
   ShiftSchema,
   AcknowledgeShiftSchema,
   DerogationAgreementSchema,
+  IdSchema,
+  DateRangeSchema,
+  ActionDateSchema,
+  UpdateShiftInputSchema,
   type ShiftInput,
 } from "@/schemas/validations";
 import {
@@ -160,6 +164,7 @@ export async function applyMasterTemplate(startDate: Date): Promise<ActionResult
   try {
     const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
 
+    startDate = ActionDateSchema.parse(startDate);
     // Récupérer les templates actifs
     const templates = await prisma.masterTemplate.findMany({
       where: { isActive: true },
@@ -295,8 +300,7 @@ export async function publishQuinzaine(
   try {
     const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
 
-    if (!(startDate instanceof Date) || !(endDate instanceof Date) ||
-        !Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || startDate > endDate) {
+    if (!DateRangeSchema.safeParse({ startDate, endDate }).success) {
       return { success: false, error: "Période de publication invalide." };
     }
 
@@ -385,6 +389,8 @@ export async function updateShift(
 ): Promise<ActionResult> {
   try {
     const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
+    shiftId = IdSchema.parse(shiftId);
+    input = UpdateShiftInputSchema.parse(input);
 
     return await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Shift" WHERE id = ${shiftId} FOR UPDATE`;
@@ -514,7 +520,7 @@ export async function updateShift(
 export async function deleteShift(shiftId: string): Promise<ActionResult> {
   try {
     const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
-    if (!shiftId) return { success: false, error: "L'identifiant du shift est requis." };
+    shiftId = IdSchema.parse(shiftId);
     return await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Shift" WHERE id = ${shiftId} FOR UPDATE`;
       const shift = await tx.shift.findUnique({
@@ -644,7 +650,7 @@ export async function acceptDerogation(input: {
       const shift = await tx.shift.findUnique({ where: { id: validated.shiftId } });
       if (!shift || shift.userId !== user.id) throw new Error("Créneau introuvable ou accès refusé.");
       if (shift.status !== "EN_ATTENTE_DEROGATION") throw new Error("Cette dérogation n'est plus en attente.");
-      if (input.planningVersion !== shift.planningVersion) throw new Error("Le planning a changé. Actualisez la page avant de confirmer.");
+      if (validated.planningVersion !== shift.planningVersion) throw new Error("Le planning a changé. Actualisez la page avant de confirmer.");
       if (shift.leaveAction === "OVERRIDE") {
         const leaves = await conflictingLeaves(tx, shift.userId, shift.startTime, shift.endTime);
         if (!leaves.some((leave) => leave.id === shift.leaveRequestId)) throw new Error("Le congé concerné a changé. Actualisez la page.");

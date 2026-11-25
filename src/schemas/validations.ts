@@ -1,5 +1,50 @@
 import { z } from "zod";
 import { INVALID_SHIFT_TIME_MESSAGE, isValidShiftInterval, isValidShiftTimes } from "@/lib/time-utils";
+import { AssignRestaurantSlotSchema } from "./restaurant-planning";
+
+export { CreateLeaveSchema, ReviewLeaveSchema } from "./leave";
+export { RestaurantSlotSchema, AssignRestaurantSlotSchema } from "./restaurant-planning";
+
+export const IdSchema = z.string().min(1, "L'identifiant est requis");
+export const CredentialsSchema = z.object({
+  email: z.string().email("Adresse email invalide"),
+  password: z.string().min(1, "Mot de passe requis"),
+});
+export const EmailSchema = CredentialsSchema.shape.email;
+export const UserFilterSchema = z.object({
+  role: z.enum(["SALARIE", "MANAGER", "SUPER_ADMIN"]).optional(),
+  isActive: z.boolean().optional(),
+  search: z.string().optional(),
+});
+export const ClockInInputSchema = z.object({
+  userId: IdSchema.optional(),
+  shiftId: IdSchema.optional(),
+}).optional();
+export const ClockOutInputSchema = z.object({
+  timeEntryId: IdSchema,
+  discrepancyReason: z.string().optional(),
+});
+export const OperationalStatusSchema = z.object({
+  shiftId: IdSchema,
+  qualification: z.enum(["CONFORME", "HEURES_MODIFIEES", "RETARD", "ABSENT_INJUSTIFIE", "MALADIE", "VACANCES"]),
+  reason: z.string().optional(),
+});
+export const ReplacementResponseSchema = z.object({ requestId: IdSchema, accepted: z.boolean() });
+export const RestaurantClosureSchema = z.object({ slotId: IdSchema, date: AssignRestaurantSlotSchema.shape.date });
+export const DuplicateRestaurantWeekSchema = z.object({
+  sourceWeek: AssignRestaurantSlotSchema.shape.date,
+  periodStart: AssignRestaurantSlotSchema.shape.date,
+  periodEnd: AssignRestaurantSlotSchema.shape.date,
+});
+export const ActionDateSchema = z.date();
+export const DateRangeSchema = z.object({ startDate: ActionDateSchema, endDate: ActionDateSchema })
+  .refine(({ startDate, endDate }) => startDate <= endDate, "Période invalide.");
+export const UpdateShiftInputSchema = z.object({
+  userId: IdSchema.optional(),
+  slotId: IdSchema.nullable().optional(),
+  startTime: z.coerce.date().optional(),
+  endTime: z.coerce.date().optional(),
+}).passthrough();
 
 export const RoleEnum = z.enum(["SALARIE", "MANAGER", "SUPER_ADMIN"]);
 export const ShiftStatusEnum = z.enum([
@@ -53,6 +98,7 @@ export const DerogationAgreementSchema = z.object({
   shiftId: z.string().min(1, "L'identifiant du shift est requis"),
   derogationAcceptedAt: z.coerce.date().default(() => new Date()),
   comment: z.string().optional(),
+  planningVersion: z.number().int().positive().optional(),
 });
 
 // --- TIME ENTRY SCHEMAS ---

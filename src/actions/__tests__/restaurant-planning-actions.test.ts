@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { addDays, format } from "date-fns";
-import { assignRestaurantSlot, saveRestaurantSlot, toggleRestaurantClosure } from "@/actions/restaurant-planning-actions";
+import { assignRestaurantSlot, respondToReplacementRequest, saveRestaurantSlot, toggleRestaurantClosure } from "@/actions/restaurant-planning-actions";
 import { prisma } from "@/lib/prisma";
 import * as auth from "@/lib/auth";
 import { toAppTime } from "@/lib/time-utils";
@@ -43,6 +43,14 @@ describe("restaurant-planning-actions", () => {
     expect(prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ action: "RESTAURANT_SLOT_CREATED", tableName: "RestaurantSlot", recordId: "slot-1" }),
     }));
+  });
+
+  it("rejette une réponse de remplacement non booléenne avant toute écriture", async () => {
+    vi.spyOn(auth, "getCurrentUser").mockResolvedValue({
+      id: "employee-1", email: "employee@test.fr", role: "SALARIE", firstName: "E", lastName: "S",
+    });
+    expect(await respondToReplacementRequest("request-1", "false" as unknown as boolean)).toMatchObject({ success: false });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("refuse l'affectation dans une case fermée", async () => {

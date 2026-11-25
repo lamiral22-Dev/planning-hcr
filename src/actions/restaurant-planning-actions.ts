@@ -2,7 +2,10 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireUserWithRoles, getCurrentUser } from "@/lib/auth";
-import { RestaurantSlotSchema, AssignRestaurantSlotSchema } from "@/schemas/restaurant-planning";
+import {
+  RestaurantSlotSchema, AssignRestaurantSlotSchema, RestaurantClosureSchema,
+  ReplacementResponseSchema, DuplicateRestaurantWeekSchema, IdSchema,
+} from "@/schemas/validations";
 import { fromAppTime, shiftDatesForDay, toAppTime } from "@/lib/time-utils";
 import {
   checkNoticePeriod,
@@ -64,10 +67,8 @@ export async function toggleRestaurantClosure(
 ): Promise<RestaurantActionResult<{ closed: boolean }>> {
   try {
     const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
+    ({ slotId, date } = RestaurantClosureSchema.parse({ slotId, date }));
     const parsedDate = new Date(`${date}T12:00:00`);
-    if (!slotId || !AssignRestaurantSlotSchema.shape.date.safeParse(date).success || Number.isNaN(parsedDate.getTime())) {
-      return { success: false, error: "Date ou créneau invalide." };
-    }
     return await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`restaurant-slot:${slotId}`}, 0))`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${slotId}:${date}`}, 0))`;
@@ -285,6 +286,7 @@ export async function respondToReplacementRequest(
   try {
     const user = await getCurrentUser();
     if (!user || user.role !== "SALARIE") return { success: false, error: "Accès réservé au salarié concerné." };
+    ({ requestId, accepted } = ReplacementResponseSchema.parse({ requestId, accepted }));
     return await prisma.$transaction(async (tx) => {
       const initialRequest = await tx.shiftReplacementRequest.findUnique({
         where: { id: requestId },
@@ -386,12 +388,7 @@ export async function duplicateRestaurantWeek(
 ): Promise<RestaurantActionResult<{ createdCount: number; skippedCount: number }>> {
   try {
     const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
-    const dateSchema = AssignRestaurantSlotSchema.shape.date;
-    if (!dateSchema.safeParse(sourceWeek).success ||
-        !dateSchema.safeParse(periodStart).success ||
-        !dateSchema.safeParse(periodEnd).success) {
-      return { success: false, error: "Les dates de duplication sont invalides." };
-    }
+    ({ sourceWeek, periodStart, periodEnd } = DuplicateRestaurantWeekSchema.parse({ sourceWeek, periodStart, periodEnd }));
     const source = new Date(`${sourceWeek}T12:00:00`);
     const start = new Date(`${periodStart}T12:00:00`);
     const end = new Date(`${periodEnd}T12:00:00`);
@@ -529,6 +526,7 @@ export async function duplicateRestaurantWeek(
 export async function archiveRestaurantSlot(slotId: string): Promise<RestaurantActionResult<RestaurantSlot>> {
   try {
     const actor = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
+    slotId = IdSchema.parse(slotId);
     return await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`restaurant-slot:${slotId}`}, 0))`;
       await tx.$queryRaw`SELECT id FROM "RestaurantSlot" WHERE id = ${slotId} FOR UPDATE`;

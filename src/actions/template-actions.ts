@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUserWithRoles } from "@/lib/auth";
 import {
   MasterTemplateSchema,
+  IdSchema,
   type MasterTemplateInput,
 } from "@/schemas/validations";
 import type { Prisma } from "@prisma/client";
@@ -109,6 +110,7 @@ export async function upsertMasterTemplate(
 export async function deleteMasterTemplate(id: string): Promise<ActionResult> {
   try {
     const manager = await requireUserWithRoles(["MANAGER", "SUPER_ADMIN"]);
+    id = IdSchema.parse(id);
 
     const current = await prisma.masterTemplate.findUnique({
       where: { id },
