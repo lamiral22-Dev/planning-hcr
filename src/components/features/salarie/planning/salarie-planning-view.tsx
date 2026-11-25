@@ -12,12 +12,13 @@ import { Button } from "@/components/ui/button";
 import { acknowledgeShift, acceptDerogation } from "@/actions/shift-actions";
 import { respondToReplacementRequest } from "@/actions/restaurant-planning-actions";
 import { createLeaveRequest } from "@/actions/leave-actions";
+import { logout } from "@/actions/auth-actions";
 import { addDays, format, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
 import { toAppTime } from "@/lib/time-utils";
 import { Dialog } from "@/components/ui/dialog";
 import { useRouter } from "next/navigation";
-import { canReserveLeave, countLeaveDays, remainingLeaveDays } from "@/lib/leave-utils";
+import { canReserveLeave, countLeaveDays, leavePeriodLabel, remainingLeaveDays } from "@/lib/leave-utils";
 import { getFrenchPublicHolidays } from "@/lib/french-holidays";
 
 export interface SalarieShiftData {
@@ -34,17 +35,19 @@ export interface SalarieShiftData {
 
 export interface SalariePlanningViewProps {
   shifts: SalarieShiftData[];
+  employeeName?: string;
   activeTimeEntryId?: string | null;
   activeClockInTime?: Date | null;
   isLoading?: boolean;
   onRefresh?: () => void;
   replacementRequests?: { id: string; proposedEmployee: string; startTime: Date; endTime: Date }[];
-  leaves?: { id: string; type: string; status: string; startDate: string; endDate: string }[];
+  leaves?: { id: string; type: string; status: string; startDate: string; endDate: string; dayPeriod?: string }[];
   cpBalance?: { hireDate: string; adjustment: number };
 }
 
 export function SalariePlanningView({
   shifts,
+  employeeName,
   activeTimeEntryId,
   activeClockInTime,
   isLoading,
@@ -57,6 +60,7 @@ export function SalariePlanningView({
   const [periodStart, setPeriodStart] = useState(() => startOfDay(toAppTime(new Date())));
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [leaveType, setLeaveType] = useState("CP");
+  const [dayPeriod, setDayPeriod] = useState("JOURNEE_COMPLETE");
   const [leaveStart, setLeaveStart] = useState("");
   const [leaveEnd, setLeaveEnd] = useState("");
   const [leaveReason, setLeaveReason] = useState("");
@@ -71,7 +75,7 @@ export function SalariePlanningView({
   const now = new Date();
   const todayKey = format(toAppTime(now), "yyyy-MM-dd");
   const requestedLeaveDays = leaveStart && leaveEnd && leaveEnd >= leaveStart
-    ? countLeaveDays(leaveStart, leaveEnd)
+    ? countLeaveDays(leaveStart, leaveEnd, dayPeriod)
     : 0;
   const reservations = leaves.filter((leave) => leave.type === "CP");
   const balanceDate = leaveStart || todayKey;
@@ -79,7 +83,7 @@ export function SalariePlanningView({
   const cpRemainingDays = hireDate ? remainingLeaveDays(hireDate, cpBalance!.adjustment, reservations, balanceDate) : 0;
   const insufficientCp = leaveType === "CP" && (cpRemainingDays <= 0 ||
     (leaveStart && leaveEnd && leaveEnd >= leaveStart && hireDate
-      ? !canReserveLeave(hireDate, cpBalance!.adjustment, reservations, { startDate: leaveStart, endDate: leaveEnd })
+      ? !canReserveLeave(hireDate, cpBalance!.adjustment, reservations, { startDate: leaveStart, endDate: leaveEnd, dayPeriod })
       : cpRemainingDays < requestedLeaveDays));
   const currentOrNextShift =
     shifts.find(
@@ -176,19 +180,16 @@ export function SalariePlanningView({
       <PwaInstallPrompt />
 
       {/* En-tête avec bouton PDF */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
           <h1 className="text-2xl font-black text-gray-900 tracking-tight">Mon Planning</h1>
           <p className="text-xs text-gray-500">Espace Salarié HCR</p>
+          {employeeName && <span className="mt-1 inline-block rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">{employeeName}</span>}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => window.print()}
-          className="flex items-center gap-1.5 text-xs font-semibold"
-        >
-          📄 Télécharger PDF
-        </Button>
+        <div className="flex shrink-0 gap-1">
+          <form action={logout}><Button type="submit" variant="outline" size="sm" className="h-auto min-h-10 px-2 text-xs">Se déconnecter</Button></form>
+          <Button variant="outline" size="sm" onClick={() => window.print()} className="h-auto min-h-10 px-2 text-xs">Télécharger PDF</Button>
+        </div>
       </div>
 
       {/* Widget de pointage de service */}
@@ -269,18 +270,20 @@ export function SalariePlanningView({
           Mes créneaux de travail
         </h2>
 
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <Button variant="outline" className="h-auto min-h-10" onClick={() => setPeriodStart(addDays(periodStart, -15))}>
+        <div className="grid w-full grid-cols-[1fr_2fr_1fr] gap-1">
+          <Button variant="outline" className="h-full min-h-16 min-w-0 whitespace-normal px-1 text-xs" onClick={() => setPeriodStart(addDays(periodStart, -15))}>
             ← 15 jours préc.
           </Button>
-          <span className="text-center text-sm font-semibold">
-            Du {format(periodStart, "d MMMM yyyy", { locale: fr })} au {format(addDays(periodStart, 14), "d MMMM yyyy", { locale: fr })}
-          </span>
-          <Button variant="outline" className="h-auto min-h-10" onClick={() => setPeriodStart(addDays(periodStart, 15))}>
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="whitespace-nowrap text-center text-xs font-semibold">
+              Du {format(periodStart, "d-MM")} au {format(addDays(periodStart, 14), "d-MM")}
+            </span>
+            <Button variant="outline" className="h-auto min-h-10 w-full px-1 text-xs" onClick={() => setPeriodStart(startOfDay(toAppTime(new Date())))}>
+              Aujourd&apos;hui
+            </Button>
+          </div>
+          <Button variant="outline" className="h-full min-h-16 min-w-0 whitespace-normal px-1 text-xs" onClick={() => setPeriodStart(addDays(periodStart, 15))}>
             15 jours suiv. →
-          </Button>
-          <Button variant="outline" className="h-auto min-h-10" onClick={() => setPeriodStart(startOfDay(toAppTime(new Date())))}>
-            Aujourd&apos;hui
           </Button>
         </div>
         <ul className="w-full space-y-2">
@@ -298,7 +301,7 @@ export function SalariePlanningView({
                 </h3>
                 <div className="min-w-0 flex-1 space-y-2">
                   {dayLeaves.map((leave) => <div key={leave.id} className={`rounded border p-2 text-sm font-semibold ${leave.status === "APPROUVE" ? "border-emerald-300 bg-emerald-50" : "border-orange-300 bg-orange-50"}`}>
-                    {leave.type === "REPOS" ? "Repos" : leave.type === "AUTRE_MOTIF" ? "CP autre motif" : leave.type} · {leave.status === "APPROUVE" ? "Validé" : "En attente"}
+                    {leave.type === "REPOS" ? "Repos" : leave.type === "AUTRE_MOTIF" ? "CP autre motif" : leave.type}{leavePeriodLabel(leave.dayPeriod)} · {leave.status === "APPROUVE" ? "Validé" : "En attente"}
                   </div>)}
                   {dayShifts.map((shift) => <SalarieShiftCard key={shift.id} shift={shift}
                     onOpenDerogation={() => setDerogationTargetShift(shift)}
@@ -315,7 +318,7 @@ export function SalariePlanningView({
           event.preventDefault();
           const form = new FormData(event.currentTarget);
           startTransition(async () => {
-            const result = await createLeaveRequest({ type: form.get("type"), startDate: form.get("startDate"), endDate: form.get("endDate"), reason: form.get("reason") });
+            const result = await createLeaveRequest({ type: form.get("type"), dayPeriod, startDate: leaveStart, endDate: leaveEnd, reason: form.get("reason") });
             if (result.success) { setLeaveOpen(false); setFeedback({ type: "success", text: "Demande envoyée." }); router.refresh(); }
             else setFeedback({ type: "error", text: result.error });
           });
@@ -324,12 +327,21 @@ export function SalariePlanningView({
             <option value="CP">CP</option><option value="RTT">RTT</option><option value="REPOS">Repos</option>
             <option value="AUTRE_MOTIF">CP autre motif (Décès, mariage, événement familial...)</option>
           </select></label>
+          <label className="block text-sm">Durée / moment<select value={dayPeriod} onChange={(event) => {
+            setDayPeriod(event.target.value);
+            if (event.target.value !== "JOURNEE_COMPLETE") setLeaveEnd(leaveStart);
+          }} className="mt-1 w-full rounded border p-2">
+            <option value="JOURNEE_COMPLETE">Journée complète</option>
+            <option value="MATIN">Demi-journée Matin (0,5 j)</option>
+            <option value="APRES_MIDI">Demi-journée Après-midi (0,5 j)</option>
+          </select></label>
+          {dayPeriod !== "JOURNEE_COMPLETE" && <p className="text-xs text-gray-600">Une demi-journée concerne une seule date. Pour une période plus longue, faites une demande séparée.</p>}
           <div className="rounded border border-blue-200 bg-blue-50 p-3 font-semibold text-blue-900">
             CP restants à la date choisie : {Math.max(0, cpRemainingDays).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} jours ·
             {" "}Période sélectionnée : {requestedLeaveDays} jour(s) décompté(s)
           </div>
-          <label className="block text-sm">Début<input type="date" name="startDate" required value={leaveStart} onChange={(event) => setLeaveStart(event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
-          <label className="block text-sm">Fin<input type="date" name="endDate" required value={leaveEnd} onChange={(event) => setLeaveEnd(event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
+          <label className="block text-sm">Début<input type="date" name="startDate" required value={leaveStart} onChange={(event) => { setLeaveStart(event.target.value); if (dayPeriod !== "JOURNEE_COMPLETE") setLeaveEnd(event.target.value); }} className="mt-1 w-full rounded border p-2" /></label>
+          <label className="block text-sm">Fin<input type="date" name="endDate" required value={leaveEnd} readOnly={dayPeriod !== "JOURNEE_COMPLETE"} onChange={(event) => setLeaveEnd(event.target.value)} className="mt-1 w-full rounded border p-2" /></label>
           <label className="block text-sm">{leaveType === "AUTRE_MOTIF" ? "Motif obligatoire" : "Motif facultatif"}<textarea name="reason" value={leaveReason} onChange={(event) => setLeaveReason(event.target.value)} required={leaveType === "AUTRE_MOTIF"} maxLength={1000} className="mt-1 w-full rounded border p-2" /></label>
           {insufficientCp && <p role="alert" className="text-red-700">Solde de CP insuffisant : la prise de CP anticipés n&apos;est pas autorisée.</p>}
           {feedback?.type === "error" && <p role="alert" className="text-red-700">{feedback.text}</p>}

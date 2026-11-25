@@ -10,6 +10,7 @@ import { calculateWeeklyHours } from "@/lib/hcr-rules";
 import { addDays } from "date-fns";
 import { fromAppTime } from "@/lib/time-utils";
 import { getFrenchPublicHolidays } from "@/lib/french-holidays";
+import { leavePeriodLabel } from "@/lib/leave-utils";
 
 export interface PlanningShift {
   id: string;
@@ -40,7 +41,7 @@ interface PlanningGridTableProps {
   onPlaceTemplate?: (templateId: string, employeeId: string, day: Date) => void;
   isPlacing?: boolean;
   readOnly?: boolean;
-  leaves?: { id: string; userId: string; type: string; status: string; startDate: string; endDate: string }[];
+  leaves?: { id: string; userId: string; type: string; status: string; startDate: string; endDate: string; dayPeriod?: string }[];
 }
 
 export function PlanningGridTable({
@@ -189,7 +190,7 @@ export function PlanningGridTable({
                       {dayShifts.length > 0 || dayLeaves.length > 0 ? (
                         <div className="space-y-1 print:space-y-0.5">
                           {dayLeaves.map((leave) => <div key={leave.id} className={`rounded border p-1 font-semibold ${leave.status === "APPROUVE" ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-orange-300 bg-orange-50 text-orange-900"}`}>
-                            {leave.type === "AUTRE_MOTIF" ? "CP autre motif" : leave.type}{leave.status === "EN_ATTENTE" ? " (Demandé)" : ""}
+                            {leave.type === "AUTRE_MOTIF" ? "CP autre motif" : leave.type}{leavePeriodLabel(leave.dayPeriod)}{leave.status === "EN_ATTENTE" ? " (Demandé)" : ""}
                           </div>)}
                           {dayShifts.map((shift) => {
                             const start = toAppTime(new Date(shift.startTime));

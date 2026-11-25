@@ -12,7 +12,11 @@ export function leaveKey(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
-export function countLeaveDays(start: string | Date, end: string | Date): number {
+export function leavePeriodLabel(period?: string): string {
+  return period === "MATIN" ? " (Matin)" : period === "APRES_MIDI" ? " (Après-midi)" : "";
+}
+
+export function countLeaveDays(start: string | Date, end: string | Date, period = "JOURNEE_COMPLETE"): number {
   const first = typeof start === "string" ? start : leaveKey(start);
   const last = typeof end === "string" ? end : leaveKey(end);
   if (last < first) return 0;
@@ -25,7 +29,7 @@ export function countLeaveDays(start: string | Date, end: string | Date): number
     if (!holidays.has(year)) holidays.set(year, new Set(getFrenchPublicHolidays(year).map((holiday) => holiday.date)));
     if (day !== 0 && !holidays.get(year)!.has(key)) count += 1;
   }
-  return count;
+  return period === "JOURNEE_COMPLETE" ? count : count * 0.5;
 }
 
 export function accruedLeaveDays(hireDate: Date, asOf = leaveDate(format(toAppTime(new Date()), "yyyy-MM-dd"))): number {
@@ -37,20 +41,22 @@ export function accruedLeaveDays(hireDate: Date, asOf = leaveDate(format(toAppTi
   return Math.max(0, targetMonth - firstMonth + (hire.endsWith("-01") ? 1 : 0)) * 2.5;
 }
 
-export type LeaveBalanceEntry = { startDate: string; endDate: string };
+export type LeaveBalanceEntry = { startDate: string; endDate: string; dayPeriod?: string };
 
 export function remainingLeaveDays(hireDate: Date, adjustment: number, leaves: LeaveBalanceEntry[], asOf: string): number {
   const lastConsumedDate = format(addDays(parseISO(asOf), -1), "yyyy-MM-dd");
   const taken = leaves.filter((leave) => leave.startDate <= lastConsumedDate)
-    .reduce((days, leave) => days + countLeaveDays(leave.startDate, leave.endDate < lastConsumedDate ? leave.endDate : lastConsumedDate), 0);
+    .reduce((days, leave) => days + countLeaveDays(leave.startDate, leave.endDate < lastConsumedDate ? leave.endDate : lastConsumedDate, leave.dayPeriod), 0);
   return accruedLeaveDays(hireDate, leaveDate(asOf)) + adjustment - taken;
 }
 
 export function canReserveLeave(hireDate: Date, adjustment: number, leaves: LeaveBalanceEntry[], request: LeaveBalanceEntry): boolean {
-  const days = countLeaveDays(request.startDate, request.endDate);
-  if (days === 0 || remainingLeaveDays(hireDate, adjustment, leaves, request.startDate) < days) return false;
+  const days = countLeaveDays(request.startDate, request.endDate, request.dayPeriod);
+  const sameDay = leaves.filter((leave) => leave.startDate === request.startDate)
+    .reduce((total, leave) => total + countLeaveDays(leave.startDate, leave.endDate, leave.dayPeriod), 0);
+  if (days === 0 || remainingLeaveDays(hireDate, adjustment, leaves, request.startDate) < days + sameDay) return false;
   return leaves.filter((leave) => leave.startDate > request.startDate)
-    .every((leave) => remainingLeaveDays(hireDate, adjustment, leaves, leave.startDate) >= days + countLeaveDays(leave.startDate, leave.endDate));
+    .every((leave) => remainingLeaveDays(hireDate, adjustment, leaves, leave.startDate) >= days + countLeaveDays(leave.startDate, leave.endDate, leave.dayPeriod));
 }
 
 export function shiftLeaveDays(start: Date, end: Date): { first: string; last: string } {
@@ -60,20 +66,26 @@ export function shiftLeaveDays(start: Date, end: Date): { first: string; last: s
   };
 }
 
-export function leaveInterval(leave: Pick<LeaveRequest, "startDate" | "endDate">) {
+export function leaveInterval(leave: Pick<LeaveRequest, "startDate" | "endDate"> & { dayPeriod?: string }) {
   const first = leaveKey(leave.startDate);
   const next = format(addDays(parseISO(leaveKey(leave.endDate)), 1), "yyyy-MM-dd");
   return {
-    start: fromZonedTime(`${first}T00:00:00`, APP_TIMEZONE),
-    end: fromZonedTime(`${next}T00:00:00`, APP_TIMEZONE),
+    start: fromZonedTime(`${first}T${leave.dayPeriod === "APRES_MIDI" ? "14:00:00" : "00:00:00"}`, APP_TIMEZONE),
+    end: fromZonedTime(`${leave.dayPeriod === "MATIN" ? first : next}T${leave.dayPeriod === "MATIN" ? "14:00:00" : "00:00:00"}`, APP_TIMEZONE),
   };
+}
+
+export function overlapsLeave(leave: { startDate: Date; endDate: Date; dayPeriod?: string }, start: Date, end: Date) {
+  const interval = leaveInterval(leave);
+  return start < interval.end && end > interval.start;
 }
 
 export async function conflictingLeaves(tx: Prisma.TransactionClient, userId: string, start: Date, end: Date) {
   const { first, last } = shiftLeaveDays(start, end);
-  return tx.leaveRequest.findMany({
+  const leaves = await tx.leaveRequest.findMany({
     where: { userId, status: "APPROUVE", startDate: { lte: leaveDate(last) }, endDate: { gte: leaveDate(first) } },
   });
+  return leaves.filter((leave) => overlapsLeave(leave, start, end));
 }
 
 export async function removeLeaveDays(
@@ -96,7 +108,7 @@ export async function removeLeaveDays(
   if (before && after) {
     remainder = await tx.leaveRequest.create({
       data: {
-        userId: leave.userId, type: leave.type, startDate: leaveDate(after),
+        userId: leave.userId, type: leave.type, dayPeriod: leave.dayPeriod, startDate: leaveDate(after),
         endDate: leave.endDate, reason: leave.reason, status: leave.status,
         reviewedById: leave.reviewedById, reviewComment: leave.reviewComment,
       },

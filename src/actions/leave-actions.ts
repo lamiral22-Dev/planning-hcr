@@ -27,7 +27,8 @@ export async function createLeaveRequest(input: unknown) {
       const startDate = leaveDate(data.startDate);
       const endDate = leaveDate(data.endDate);
       const existing = await tx.leaveRequest.findFirst({
-        where: { userId: user.id, status: { in: ["EN_ATTENTE", "APPROUVE"] }, startDate: { lte: endDate }, endDate: { gte: startDate } },
+        where: { userId: user.id, status: { in: ["EN_ATTENTE", "APPROUVE"] }, startDate: { lte: endDate }, endDate: { gte: startDate },
+          ...(data.dayPeriod === "JOURNEE_COMPLETE" ? {} : { dayPeriod: { not: data.dayPeriod === "MATIN" ? "APRES_MIDI" : "MATIN" } }) },
       });
       if (existing) throw new Error("Une demande existe déjà sur cette période.");
       if (data.type === "CP") {
@@ -35,13 +36,13 @@ export async function createLeaveRequest(input: unknown) {
           tx.user.findUniqueOrThrow({ where: { id: user.id }, select: { createdAt: true, cpAdjustment: true } }),
           tx.leaveRequest.findMany({ where: { userId: user.id, type: "CP", status: { in: ["EN_ATTENTE", "APPROUVE"] } } }),
         ]);
-        const reservations = reservedLeaves.map((leave) => ({ startDate: leaveKey(leave.startDate), endDate: leaveKey(leave.endDate) }));
+        const reservations = reservedLeaves.map((leave) => ({ startDate: leaveKey(leave.startDate), endDate: leaveKey(leave.endDate), dayPeriod: leave.dayPeriod }));
         if (!canReserveLeave(employee.createdAt, employee.cpAdjustment, reservations, data)) {
           throw new Error("Solde de CP insuffisant : la prise de CP anticipés n'est pas autorisée.");
         }
       }
       const leave = await tx.leaveRequest.create({
-        data: { userId: user.id, type: data.type, startDate, endDate, reason: data.reason || null },
+        data: { userId: user.id, type: data.type, dayPeriod: data.dayPeriod, startDate, endDate, reason: data.reason || null },
       });
       await tx.auditLog.create({ data: {
         action: "LEAVE_REQUESTED", tableName: "LeaveRequest", recordId: leave.id,
@@ -71,9 +72,9 @@ export async function reviewLeaveRequest(input: unknown) {
           tx.user.findUniqueOrThrow({ where: { id: leave.userId }, select: { createdAt: true, cpAdjustment: true } }),
           tx.leaveRequest.findMany({ where: { userId: leave.userId, id: { not: leave.id }, type: "CP", status: { in: ["EN_ATTENTE", "APPROUVE"] } } }),
         ]);
-        const reservations = reservedLeaves.map((item) => ({ startDate: leaveKey(item.startDate), endDate: leaveKey(item.endDate) }));
+        const reservations = reservedLeaves.map((item) => ({ startDate: leaveKey(item.startDate), endDate: leaveKey(item.endDate), dayPeriod: item.dayPeriod }));
         if (!canReserveLeave(employee.createdAt, employee.cpAdjustment, reservations, {
-          startDate: leaveKey(leave.startDate), endDate: leaveKey(leave.endDate),
+          startDate: leaveKey(leave.startDate), endDate: leaveKey(leave.endDate), dayPeriod: leave.dayPeriod,
         })) throw new Error("Solde de CP insuffisant : la prise de CP anticipés n'est pas autorisée.");
       }
       const interval = leaveInterval(leave);

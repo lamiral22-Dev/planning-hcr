@@ -94,7 +94,7 @@ export default async function ManagerArbitragePage() {
       discrepancies={discrepancies}
       swaps={formattedSwaps}
       leaves={pendingLeaves.map((leave) => ({
-        id: leave.id, type: leave.type, employee: `${leave.user.firstName} ${leave.user.lastName}`,
+        id: leave.id, type: leave.type, dayPeriod: leave.dayPeriod, employee: `${leave.user.firstName} ${leave.user.lastName}`,
         startDate: leave.startDate.toISOString().slice(0, 10),
         endDate: leave.endDate.toISOString().slice(0, 10), reason: leave.reason,
       }))}

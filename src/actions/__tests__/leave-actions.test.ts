@@ -56,6 +56,27 @@ describe("demandes de congés", () => {
     expect(prisma.leaveRequest.create).not.toHaveBeenCalled();
   });
 
+  it("refuse une demi-journée sur plusieurs dates et enregistre la période choisie sur une date", async () => {
+    expect((await createLeaveRequest({ type: "RTT", dayPeriod: "MATIN", startDate: "2026-12-01", endDate: "2026-12-02" })).success).toBe(false);
+    expect((await createLeaveRequest({ type: "RTT", dayPeriod: "APRES_MIDI", startDate: "2026-12-01", endDate: "2026-12-01" })).success).toBe(true);
+    expect(prisma.leaveRequest.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ dayPeriod: "APRES_MIDI" }) }));
+  });
+
+  it.each([
+    ["MATIN", "2026-11-30T23:00:00.000Z", "2026-12-01T13:00:00.000Z"],
+    ["APRES_MIDI", "2026-12-01T13:00:00.000Z", "2026-12-01T23:00:00.000Z"],
+  ])("ne recherche que les créneaux chevauchant la période %s", async (dayPeriod, localStart, localEnd) => {
+    vi.mocked(auth.requireUserWithRoles).mockResolvedValue(manager);
+    const half = { ...leave, type: "RTT", dayPeriod, startDate: new Date("2026-12-01T00:00:00Z"), endDate: new Date("2026-12-01T00:00:00Z") };
+    vi.mocked(prisma.leaveRequest.findUnique).mockResolvedValue(half as any);
+    vi.mocked(prisma.leaveRequest.findUniqueOrThrow).mockResolvedValue(half as any);
+    vi.mocked(prisma.shift.findMany).mockResolvedValue([]);
+    expect((await reviewLeaveRequest({ id: "leave", approved: true })).success).toBe(true);
+    expect(prisma.shift.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      startTime: { lt: new Date(localEnd) }, endTime: { gt: new Date(localStart) },
+    }) }));
+  });
+
   it("présente les conflits sans mutation avant confirmation", async () => {
     vi.mocked(auth.requireUserWithRoles).mockResolvedValue(manager);
     const shift = { id: "shift", planningVersion: 3, startTime: addDays(new Date(), 2), endTime: addDays(new Date(), 2), status: "PUBLIE" };

@@ -51,14 +51,14 @@ export default async function ManagerPlanningPage({ searchParams }: { searchPara
     }),
     prisma.leaveRequest.findMany({
       where: { type: "CP", status: "APPROUVE" },
-      select: { userId: true, startDate: true, endDate: true },
+      select: { userId: true, startDate: true, endDate: true, dayPeriod: true },
     }),
   ]);
 
-  const leavesByEmployee = new Map<string, { startDate: string; endDate: string }[]>();
+  const leavesByEmployee = new Map<string, { startDate: string; endDate: string; dayPeriod: string }[]>();
   for (const leave of approvedCpLeaves) {
     const entries = leavesByEmployee.get(leave.userId) ?? [];
-    entries.push({ startDate: leaveKey(leave.startDate), endDate: leaveKey(leave.endDate) });
+    entries.push({ startDate: leaveKey(leave.startDate), endDate: leaveKey(leave.endDate), dayPeriod: leave.dayPeriod });
     leavesByEmployee.set(leave.userId, entries);
   }
   const balanceDate = format(currentWeek, "yyyy-MM-dd");
@@ -69,7 +69,7 @@ export default async function ManagerPlanningPage({ searchParams }: { searchPara
         id: employee.id,
         name: `${employee.firstName} ${employee.lastName}`,
         cpTakenDays: (leavesByEmployee.get(employee.id) ?? []).filter((leave) => leave.startDate <= balanceDate)
-          .reduce((days, leave) => days + countLeaveDays(leave.startDate, leave.endDate), 0),
+          .reduce((days, leave) => days + countLeaveDays(leave.startDate, leave.endDate, leave.dayPeriod), 0),
         cpRemainingDays: Math.max(0, remainingLeaveDays(employee.createdAt, employee.cpAdjustment, leavesByEmployee.get(employee.id) ?? [], balanceDate)),
       }))}
       slots={slots}
@@ -93,7 +93,7 @@ export default async function ManagerPlanningPage({ searchParams }: { searchPara
         closed: closure.isClosed,
       }))}
       leaves={leaves.map((leave) => ({
-        id: leave.id, userId: leave.userId, type: leave.type, status: leave.status,
+        id: leave.id, userId: leave.userId, type: leave.type, status: leave.status, dayPeriod: leave.dayPeriod,
         name: `${leave.user.firstName} ${leave.user.lastName}`,
         startDate: leave.startDate.toISOString().slice(0, 10), endDate: leave.endDate.toISOString().slice(0, 10),
       }))}

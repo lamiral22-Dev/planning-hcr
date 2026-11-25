@@ -20,6 +20,7 @@ import { shiftDatesForDay, toAppTime, fromAppTime } from "@/lib/time-utils";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { getFrenchPublicHolidays } from "@/lib/french-holidays";
+import { leaveDate, leavePeriodLabel, overlapsLeave } from "@/lib/leave-utils";
 
 export interface RestaurantEmployee {
   id: string;
@@ -60,7 +61,7 @@ interface Props {
   slots: RestaurantSlot[];
   shifts: RestaurantShift[];
   closures: RestaurantClosure[];
-  leaves?: { id: string; userId: string; name: string; type: string; status: string; startDate: string; endDate: string }[];
+  leaves?: { id: string; userId: string; name: string; type: string; status: string; startDate: string; endDate: string; dayPeriod?: string }[];
 }
 
 function dateKey(date: Date) {
@@ -135,9 +136,8 @@ export function PlanningRestaurantView({ weekStart, employees, slots, shifts, cl
 
   const assign = (slot: RestaurantSlot, day: Date, employeeId: string, forceOverrideLeave = false) => {
     const times = shiftDatesForDay(dateKey(day), slot.startTime, slot.endTime);
-    const first = dateKey(toAppTime(times.startTime));
-    const last = dateKey(toAppTime(new Date(times.endTime.getTime() - 1)));
-    if (!forceOverrideLeave && leaves.some((leave) => leave.userId === employeeId && leave.startDate <= last && leave.endDate >= first)) {
+    if (!forceOverrideLeave && leaves.some((leave) => leave.status === "APPROUVE" && leave.userId === employeeId &&
+      overlapsLeave({ ...leave, startDate: leaveDate(leave.startDate), endDate: leaveDate(leave.endDate) }, times.startTime, times.endTime))) {
       setLeaveConflict({ slot, day, employeeId });
       return;
     }
@@ -369,7 +369,7 @@ export function PlanningRestaurantView({ weekStart, employees, slots, shifts, cl
               {days.map((day) => <td key={dateKey(day)} className="border bg-slate-50 p-1 align-top">
                 {leaves.filter((leave) => leave.startDate <= dateKey(day) && leave.endDate >= dateKey(day)).map((leave) =>
                   <div key={leave.id} className={`mb-1 rounded p-1 font-semibold ${leave.status === "APPROUVE" ? "bg-emerald-100 text-emerald-900" : "bg-orange-100 text-orange-900"}`}>
-                    {leave.type === "AUTRE_MOTIF" ? "CP autre motif" : leave.type}{leave.status === "EN_ATTENTE" ? " (Demandé)" : ""} · {leave.name}
+                    {leave.type === "AUTRE_MOTIF" ? "CP autre motif" : leave.type}{leavePeriodLabel(leave.dayPeriod)}{leave.status === "EN_ATTENTE" ? " (Demandé)" : ""} · {leave.name}
                   </div>
                 )}
               </td>)}

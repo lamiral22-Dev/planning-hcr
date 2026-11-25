@@ -25,16 +25,16 @@ describe("SalariePlanningView", () => {
     vi.setSystemTime(new Date("2026-03-28T23:30:00Z"));
     render(<SalariePlanningView shifts={[]} />);
 
-    expect(screen.getByText("Du 29 mars 2026 au 12 avril 2026")).toBeDefined();
+    expect(screen.getByText("Du 29-03 au 12-04")).toBeDefined();
     expect(screen.getAllByRole("listitem")).toHaveLength(15);
     expect(within(screen.getAllByRole("listitem")[0]).getByText("Aujourd'hui")).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: /15 jours suiv/ }));
-    expect(screen.getByText("Du 13 avril 2026 au 27 avril 2026")).toBeDefined();
+    expect(screen.getByText("Du 13-04 au 27-04")).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: /15 jours préc/ }));
     fireEvent.click(screen.getByRole("button", { name: /15 jours préc/ }));
-    expect(screen.getByText("Du 14 mars 2026 au 28 mars 2026")).toBeDefined();
+    expect(screen.getByText("Du 14-03 au 28-03")).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: "Aujourd'hui" }));
-    expect(screen.getByText("Du 29 mars 2026 au 12 avril 2026")).toBeDefined();
+    expect(screen.getByText("Du 29-03 au 12-04")).toBeDefined();
   });
 
   it("regroupe les créneaux et absences par jour et ouvre la dérogation du bon créneau", () => {
@@ -75,6 +75,17 @@ describe("SalariePlanningView", () => {
     expect(screen.getByText(/Période sélectionnée : 2 jour\(s\) décompté\(s\)/)).toBeDefined();
     expect(screen.getByText("Solde de CP insuffisant : la prise de CP anticipés n'est pas autorisée.")).toBeDefined();
     expect((screen.getByRole("button", { name: "Envoyer la demande" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("affiche le nom et permet de demander une demi-journée avec un solde de 0,5 jour", () => {
+    render(<SalariePlanningView shifts={[]} employeeName="Sarah Benali" cpBalance={{ hireDate: "2026-11-02T10:00:00Z", adjustment: 0.5 }} />);
+    expect(screen.getByText("Sarah Benali")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Se déconnecter" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: /Demander un CP/ }));
+    fireEvent.change(screen.getByLabelText("Durée / moment"), { target: { value: "MATIN" } });
+    fireEvent.change(screen.getByLabelText("Début"), { target: { value: "2026-11-24" } });
+    expect(screen.getByText(/Période sélectionnée : 0.5 jour/)).toBeDefined();
+    expect((screen.getByRole("button", { name: "Envoyer la demande" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("actualise le solde selon la date choisie et affiche les jours fériés", () => {

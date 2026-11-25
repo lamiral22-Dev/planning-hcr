@@ -5,6 +5,7 @@ const date = AssignRestaurantSlotSchema.shape.date;
 
 export const CreateLeaveSchema = z.object({
   type: z.enum(["CP", "RTT", "REPOS", "AUTRE_MOTIF"]),
+  dayPeriod: z.enum(["JOURNEE_COMPLETE", "MATIN", "APRES_MIDI"]).default("JOURNEE_COMPLETE"),
   startDate: date,
   endDate: date,
   reason: z.string().trim().max(1000).optional(),
@@ -14,6 +15,9 @@ export const CreateLeaveSchema = z.object({
 }).refine((value) => value.type !== "AUTRE_MOTIF" || Boolean(value.reason?.trim()), {
   path: ["reason"],
   message: "Le motif est obligatoire pour ce type de congé.",
+}).refine((value) => value.dayPeriod === "JOURNEE_COMPLETE" || value.startDate === value.endDate, {
+  path: ["endDate"],
+  message: "Une demi-journée doit porter sur une seule date.",
 });
 
 export const ReviewLeaveSchema = z.object({

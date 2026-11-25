@@ -124,6 +124,7 @@ model LeaveRequest {
   userId        String
   user          User     @relation(fields: [userId], references: [id], onDelete: Restrict)
   type          String
+  dayPeriod     String   @default("JOURNEE_COMPLETE")
   startDate     DateTime @db.Date
   endDate       DateTime @db.Date
   reason        String?

@@ -7,8 +7,9 @@ import { toAppTime } from "@/lib/time-utils";
 import { reviewLeaveRequest } from "@/actions/leave-actions";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { leavePeriodLabel } from "@/lib/leave-utils";
 
-type Leave = { id: string; type: string; employee: string; startDate: string; endDate: string; reason: string | null };
+type Leave = { id: string; type: string; dayPeriod?: string; employee: string; startDate: string; endDate: string; reason: string | null };
 type Conflict = { id: string; startTime: Date; endTime: Date; status: string; planningVersion: number };
 
 function leaveTypeLabel(type: string) {
@@ -41,7 +42,7 @@ export function LeaveArbitration({ leaves }: { leaves: Leave[] }) {
     {feedback && <p role="status">{feedback}</p>}
     {!leaves.length && <p className="text-sm text-slate-500">Aucune demande en attente.</p>}
     {leaves.map((leave) => <div key={leave.id} className="space-y-2 border-t pt-3">
-      <p className="font-semibold">{leave.employee} · {leaveTypeLabel(leave.type)} · {leave.startDate} au {leave.endDate}</p>
+      <p className="font-semibold">{leave.employee} · {leaveTypeLabel(leave.type)}{leavePeriodLabel(leave.dayPeriod)} · {leave.startDate} au {leave.endDate}</p>
       {leave.reason && <p className="text-sm">{leave.reason}</p>}
       <label className="block text-sm">Commentaire
         <input value={comments[leave.id] ?? ""} onChange={(event) => setComments({ ...comments, [leave.id]: event.target.value })} maxLength={1000} className="ml-2 rounded border p-2" />
