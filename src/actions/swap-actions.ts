@@ -15,6 +15,11 @@ export type ActionResult<T = unknown> =
   | { success: true; data: T }
   | { success: false; error: string; code?: string };
 
+async function lockSwapShift(tx: Prisma.TransactionClient, shiftId: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`shift-swap:${shiftId}`}, 0))`;
+  await tx.$queryRaw`SELECT id FROM "Shift" WHERE id = ${shiftId} FOR UPDATE`;
+}
+
 /**
  * Initiation d'une demande d'échange par l'équipier cédant.
  * Contrôles stricts :
@@ -42,59 +47,32 @@ export async function requestShiftSwap(input: {
       reason: input.reason ?? null,
     });
 
-    const shift = await prisma.shift.findUnique({
-      where: { id: validated.shiftId },
-    });
-
-    if (!shift) {
-      return { success: false, error: "Shift introuvable", code: "NOT_FOUND" };
-    }
-
-    if (shift.userId !== user.id) {
-      return {
-        success: false,
-        error: "Vous n'êtes pas le titulaire de ce shift",
-        code: "FORBIDDEN",
-      };
-    }
-
-    if (shift.status !== "PUBLIE") {
-      return {
-        success: false,
-        error: "Seul un shift au statut PUBLIE peut être proposé à l'échange",
-        code: "INVALID_STATUS",
-      };
-    }
-
-    // Vérifier l'existence d'une demande en cours
-    const existingActiveSwap = await prisma.shiftSwap.findFirst({
-      where: {
-        shiftId: validated.shiftId,
-        status: { in: ["EN_ATTENTE_EQUIPIER", "EN_ATTENTE_MANAGER"] },
-      },
-    });
-
-    if (existingActiveSwap) {
-      return {
-        success: false,
-        error: "Une demande d'échange est déjà en cours pour ce créneau",
-        code: "SWAP_ALREADY_IN_PROGRESS",
-      };
-    }
-
-    const targetUser = await prisma.user.findUnique({
-      where: { id: validated.targetUserId },
-    });
-
-    if (!targetUser) {
-      return {
-        success: false,
-        error: "Le salarié repreneur ciblé est introuvable",
-        code: "TARGET_USER_NOT_FOUND",
-      };
-    }
-
     const result = await prisma.$transaction(async (tx) => {
+      await lockSwapShift(tx, validated.shiftId);
+      const shift = await tx.shift.findUnique({ where: { id: validated.shiftId } });
+      if (!shift) {
+        return { success: false as const, error: "Shift introuvable", code: "NOT_FOUND" };
+      }
+      if (shift.userId !== user.id) {
+        return { success: false as const, error: "Vous n'êtes pas le titulaire de ce shift", code: "FORBIDDEN" };
+      }
+      if (shift.status !== "PUBLIE" || shift.leaveAction) {
+        return { success: false as const, error: "Seul un shift au statut PUBLIE peut être proposé à l'échange", code: "INVALID_STATUS" };
+      }
+      const existingActiveSwap = await tx.shiftSwap.findFirst({
+        where: {
+          shiftId: validated.shiftId,
+          status: { in: ["EN_ATTENTE_EQUIPIER", "EN_ATTENTE_MANAGER"] },
+        },
+      });
+      if (existingActiveSwap) {
+        return { success: false as const, error: "Une demande d'échange est déjà en cours pour ce créneau", code: "SWAP_ALREADY_IN_PROGRESS" };
+      }
+      const targetUser = await tx.user.findUnique({ where: { id: validated.targetUserId } });
+      if (!targetUser) {
+        return { success: false as const, error: "Le salarié repreneur ciblé est introuvable", code: "TARGET_USER_NOT_FOUND" };
+      }
+
       const swap = await tx.shiftSwap.create({
         data: {
           shiftId: validated.shiftId,
@@ -116,10 +94,10 @@ export async function requestShiftSwap(input: {
         },
       });
 
-      return swap;
+      return { success: true as const, data: swap };
     });
 
-    return { success: true, data: result };
+    return result;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Erreur inconnue";
     return { success: false, error: message };
@@ -146,122 +124,69 @@ export async function respondToSwapRequest(input: {
 
     const validated = PeerSwapResponseSchema.parse(input);
 
-    const swap = await prisma.shiftSwap.findUnique({
+    const initialSwap = await prisma.shiftSwap.findUnique({
       where: { id: validated.swapId },
-      include: { shift: true },
+      select: { id: true, shiftId: true },
     });
 
-    if (!swap) {
+    if (!initialSwap) {
       return { success: false, error: "Demande d'échange introuvable", code: "NOT_FOUND" };
     }
 
-    if (swap.targetUserId !== user.id) {
-      return {
-        success: false,
-        error: "Vous n'êtes pas le destinataire de cette demande",
-        code: "FORBIDDEN",
-      };
-    }
-
-    if (swap.status !== "EN_ATTENTE_EQUIPIER") {
-      return {
-        success: false,
-        error: "La demande d'échange n'est plus en attente d'équipier",
-        code: "INVALID_STATUS",
-      };
-    }
-
     const timestamp = new Date();
-
-    // Cas du refus par l'équipier
-    if (!validated.accepted) {
-      const result = await prisma.$transaction(async (tx) => {
-        const updated = await tx.shiftSwap.update({
-          where: { id: swap.id },
-          data: {
-            status: "REFUSE",
-            rejectedReason: validated.rejectedReason ?? "Refusé par l'équipier",
-          },
-        });
-
-        await tx.auditLog.create({
-          data: {
-            action: "SWAP_REJECTED_BY_PEER",
-            tableName: "ShiftSwap",
-            recordId: swap.id,
-            userId: user.id,
-            payloadOld: swap as unknown as Prisma.InputJsonValue,
-            payloadNew: updated as unknown as Prisma.InputJsonValue,
-            timestamp,
-          },
-        });
-
-        return updated;
-      });
-
-      return { success: true, data: result };
-    }
-
-    // Cas de l'acceptation : Récupération des shifts existants du repreneur
-    const targetUserShifts = await prisma.shift.findMany({
-      where: {
-        userId: user.id,
-        status: { not: "ANNULE" },
-      },
-      select: {
-        id: true,
-        startTime: true,
-        endTime: true,
-      },
-    });
-
-    // 1. Contrôle strict d'absence de collision / chevauchement direct
-    // collision si (!(existingEnd <= shiftStart || existingStart >= shiftEnd))
-    const shiftToTake = {
-      id: swap.shift.id,
-      startTime: swap.shift.startTime,
-      endTime: swap.shift.endTime,
-    };
-
-    const hasCollision = targetUserShifts.some(
-      (existing) =>
-        !(
-          existing.endTime <= shiftToTake.startTime ||
-          existing.startTime >= shiftToTake.endTime
-        )
-    );
-
-    if (hasCollision) {
-      return {
-        success: false,
-        error: "Le créneau à reprendre chevauche directement l'un de vos shifts existants.",
-        code: "SHIFT_COLLISION",
-      };
-    }
-
-    // 2. Contrôle de conformité légale HCR en temps réel via validateShiftSwapEligibility
-    const eligibility = validateShiftSwapEligibility(targetUserShifts, shiftToTake);
-    if (!eligibility.isEligible) {
-      return {
-        success: false,
-        error: `Incompatibilité légale HCR : ${eligibility.errors.join(" ")}`,
-        code: "HCR_COMPLIANCE_VIOLATION",
-      };
-    }
-
-    // Si conforme : passage à EN_ATTENTE_MANAGER
     const result = await prisma.$transaction(async (tx) => {
+      await lockSwapShift(tx, initialSwap.shiftId);
+      const swap = await tx.shiftSwap.findUnique({
+        where: { id: validated.swapId },
+        include: { shift: true },
+      });
+      if (!swap) return { success: false as const, error: "Demande d'échange introuvable", code: "NOT_FOUND" };
+      if (swap.targetUserId !== user.id) {
+        return { success: false as const, error: "Vous n'êtes pas le destinataire de cette demande", code: "FORBIDDEN" };
+      }
+      if (swap.status !== "EN_ATTENTE_EQUIPIER") {
+        return { success: false as const, error: "La demande d'échange n'est plus en attente d'équipier", code: "INVALID_STATUS" };
+      }
+      if (validated.accepted && (
+        swap.shift.userId !== swap.requesterId ||
+        swap.shift.status !== "PUBLIE" ||
+        swap.shift.leaveAction
+      )) {
+        return { success: false as const, error: "Le créneau a changé ou attend une décision liée à un congé.", code: "INVALID_STATUS" };
+      }
+
+      if (validated.accepted) {
+        await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${user.id} FOR UPDATE`;
+        if ((await conflictingLeaves(tx, user.id, swap.shift.startTime, swap.shift.endTime)).length) {
+          return { success: false as const, error: "Un congé validé couvre ce créneau.", code: "HCR_COMPLIANCE_VIOLATION" };
+        }
+        const targetUserShifts = await tx.shift.findMany({
+          where: { userId: user.id, status: { not: "ANNULE" } },
+          select: { id: true, startTime: true, endTime: true },
+        });
+        const shiftToTake = { id: swap.shift.id, startTime: swap.shift.startTime, endTime: swap.shift.endTime };
+        const hasCollision = targetUserShifts.some(
+          (existing) => !(existing.endTime <= shiftToTake.startTime || existing.startTime >= shiftToTake.endTime)
+        );
+        if (hasCollision) {
+          return { success: false as const, error: "Le créneau à reprendre chevauche directement l'un de vos shifts existants.", code: "SHIFT_COLLISION" };
+        }
+        const eligibility = validateShiftSwapEligibility(targetUserShifts, shiftToTake);
+        if (!eligibility.isEligible) {
+          return { success: false as const, error: `Incompatibilité légale HCR : ${eligibility.errors.join(" ")}`, code: "HCR_COMPLIANCE_VIOLATION" };
+        }
+      }
+
+      const rejected = !validated.accepted;
       const updated = await tx.shiftSwap.update({
         where: { id: swap.id },
-        data: {
-          status: "EN_ATTENTE_MANAGER",
-          peerApprovedAt: timestamp,
-        },
+        data: rejected
+          ? { status: "REFUSE", rejectedReason: validated.rejectedReason ?? "Refusé par l'équipier" }
+          : { status: "EN_ATTENTE_MANAGER", peerApprovedAt: timestamp },
       });
-
       await tx.auditLog.create({
         data: {
-          action: "SWAP_ACCEPTED_BY_PEER",
+          action: rejected ? "SWAP_REJECTED_BY_PEER" : "SWAP_ACCEPTED_BY_PEER",
           tableName: "ShiftSwap",
           recordId: swap.id,
           userId: user.id,
@@ -271,10 +196,10 @@ export async function respondToSwapRequest(input: {
         },
       });
 
-      return updated;
+      return { success: true as const, data: updated };
     });
 
-    return { success: true, data: result };
+    return result;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Erreur inconnue";
     return { success: false, error: message };
@@ -304,146 +229,99 @@ export async function arbitrateShiftSwap(input: {
       rejectedReason: input.rejectedReason,
     });
 
-    const swap = await prisma.shiftSwap.findUnique({
+    const initialSwap = await prisma.shiftSwap.findUnique({
       where: { id: validated.swapId },
-      include: { shift: true },
+      select: { id: true, shiftId: true },
     });
 
-    if (!swap) {
+    if (!initialSwap) {
       return { success: false, error: "Demande d'échange introuvable", code: "NOT_FOUND" };
-    }
-
-    if (swap.status !== "EN_ATTENTE_MANAGER") {
-      return {
-        success: false,
-        error: "Le swap n'est pas en attente de validation managériale",
-        code: "INVALID_STATUS",
-      };
     }
 
     const timestamp = new Date();
 
-    // Cas du refus par le manager
-    if (!validated.approved) {
-      const result = await prisma.$transaction(async (tx) => {
-        const updatedSwap = await tx.shiftSwap.update({
-          where: { id: swap.id },
-          data: {
-            status: "REFUSE",
-            rejectedReason: validated.rejectedReason ?? "Refusé par la direction",
-          },
-        });
-
-        await tx.auditLog.create({
-          data: {
-            action: "SWAP_REJECTED_BY_MANAGER",
-            tableName: "ShiftSwap",
-            recordId: swap.id,
-            userId: manager.id,
-            payloadOld: swap as unknown as Prisma.InputJsonValue,
-            payloadNew: updatedSwap as unknown as Prisma.InputJsonValue,
-            timestamp,
-          },
-        });
-
-        return { swap: updatedSwap, shift: swap.shift };
-      });
-
-      return { success: true, data: result };
-    }
-
-    // Cas de la validation par le manager
-    // Transaction atomique : Re-vérification HCR + Transfert shift + Reset émargement + Audit
     const result = await prisma.$transaction(async (tx) => {
-      // Re-vérification de collision / HCR pour le targetUser
-      await tx.$queryRaw`SELECT id FROM "Shift" WHERE id = ${swap.shiftId} FOR UPDATE`;
-      const currentShift = await tx.shift.findUnique({ where: { id: swap.shiftId } });
-      if (!currentShift || currentShift.leaveAction || currentShift.status !== "PUBLIE" || currentShift.userId !== swap.requesterId) {
-        throw new Error("Le créneau a changé ou attend une décision liée à un congé.");
-      }
-      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${swap.targetUserId} FOR UPDATE`;
-      if ((await conflictingLeaves(tx, swap.targetUserId, swap.shift.startTime, swap.shift.endTime)).length) {
-        throw new Error("Un congé validé couvre ce créneau.");
-      }
-      const targetUserShifts = await tx.shift.findMany({
-        where: {
-          userId: swap.targetUserId,
-          status: { not: "ANNULE" },
-        },
-        select: {
-          id: true,
-          startTime: true,
-          endTime: true,
-        },
+      await lockSwapShift(tx, initialSwap.shiftId);
+      const swap = await tx.shiftSwap.findUnique({
+        where: { id: validated.swapId },
+        include: { shift: true },
       });
+      if (!swap) {
+        return { success: false as const, error: "Demande d'échange introuvable", code: "NOT_FOUND" };
+      }
+      if (swap.status !== "EN_ATTENTE_MANAGER") {
+        return { success: false as const, error: "Le swap n'est pas en attente de validation managériale", code: "INVALID_STATUS" };
+      }
+      if (validated.approved && (
+        swap.shift.leaveAction ||
+        swap.shift.status !== "PUBLIE" ||
+        swap.shift.userId !== swap.requesterId
+      )) {
+        return { success: false as const, error: "Le créneau a changé ou attend une décision liée à un congé.", code: "INVALID_STATUS" };
+      }
 
-      const shiftToTake = {
-        id: swap.shift.id,
-        startTime: swap.shift.startTime,
-        endTime: swap.shift.endTime,
-      };
-
-      const hasCollision = targetUserShifts.some(
-        (existing) =>
-          !(
-            existing.endTime <= shiftToTake.startTime ||
-            existing.startTime >= shiftToTake.endTime
-          )
-      );
-
-      if (hasCollision) {
-        throw new Error(
-          "COLLISION: Le créneau à reprendre chevauche un shift existant du repreneur."
+      if (validated.approved) {
+        await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${swap.targetUserId} FOR UPDATE`;
+        if ((await conflictingLeaves(tx, swap.targetUserId, swap.shift.startTime, swap.shift.endTime)).length) {
+          return { success: false as const, error: "Un congé validé couvre ce créneau.", code: "HCR_COMPLIANCE_VIOLATION" };
+        }
+        const targetUserShifts = await tx.shift.findMany({
+          where: { userId: swap.targetUserId, status: { not: "ANNULE" } },
+          select: { id: true, startTime: true, endTime: true },
+        });
+        const shiftToTake = { id: swap.shift.id, startTime: swap.shift.startTime, endTime: swap.shift.endTime };
+        const hasCollision = targetUserShifts.some(
+          (existing) => !(existing.endTime <= shiftToTake.startTime || existing.startTime >= shiftToTake.endTime)
         );
+        if (hasCollision) {
+          return { success: false as const, error: "COLLISION: Le créneau à reprendre chevauche un shift existant du repreneur.", code: "SHIFT_COLLISION" };
+        }
+        const eligibility = validateShiftSwapEligibility(targetUserShifts, shiftToTake);
+        if (!eligibility.isEligible) {
+          return { success: false as const, error: `HCR_VIOLATION: ${eligibility.errors.join(" ")}`, code: "HCR_COMPLIANCE_VIOLATION" };
+        }
       }
-
-      const eligibility = validateShiftSwapEligibility(targetUserShifts, shiftToTake);
-      if (!eligibility.isEligible) {
-        throw new Error(`HCR_VIOLATION: ${eligibility.errors.join(" ")}`);
-      }
-
-      // Réassignation du shift au repreneur et réinitialisation de l'émargement
-      const updatedShift = await tx.shift.update({
-        where: { id: swap.shiftId },
-        data: {
-          userId: swap.targetUserId,
-          acknowledgedAt: null, // Règle métier : le repreneur doit émarger son nouveau shift
-          planningVersion: (swap.shift.planningVersion || 1) + 1,
-        },
-      });
 
       const updatedSwap = await tx.shiftSwap.update({
         where: { id: swap.id },
-        data: {
-          status: "VALIDE",
-          managerApprovedAt: timestamp,
-        },
+        data: validated.approved
+          ? { status: "VALIDE", managerApprovedAt: timestamp }
+          : { status: "REFUSE", rejectedReason: validated.rejectedReason ?? "Refusé par la direction" },
       });
-
+      const updatedShift = validated.approved
+        ? await tx.shift.update({
+            where: { id: swap.shiftId },
+            data: {
+              userId: swap.targetUserId,
+              acknowledgedAt: null,
+              planningVersion: (swap.shift.planningVersion || 1) + 1,
+            },
+          })
+        : swap.shift;
       await tx.auditLog.create({
         data: {
-          action: "SWAP_APPROVED_BY_MANAGER",
+          action: validated.approved ? "SWAP_APPROVED_BY_MANAGER" : "SWAP_REJECTED_BY_MANAGER",
           tableName: "ShiftSwap",
           recordId: swap.id,
           userId: manager.id,
-          payloadOld: {
-            swapStatus: swap.status,
-            previousUserId: swap.shift.userId,
-            acknowledgedAt: swap.shift.acknowledgedAt,
-          },
-          payloadNew: {
-            swapStatus: "VALIDE",
-            newUserId: swap.targetUserId,
-            acknowledgedAt: null,
-          },
+          payloadOld: validated.approved
+            ? {
+                swapStatus: swap.status,
+                previousUserId: swap.shift.userId,
+                acknowledgedAt: swap.shift.acknowledgedAt,
+              }
+            : swap as unknown as Prisma.InputJsonValue,
+          payloadNew: validated.approved
+            ? { swapStatus: "VALIDE", newUserId: swap.targetUserId, acknowledgedAt: null }
+            : updatedSwap as unknown as Prisma.InputJsonValue,
           timestamp,
         },
       });
 
-      return { swap: updatedSwap, shift: updatedShift };
+      return { success: true as const, data: { swap: updatedSwap, shift: updatedShift } };
     });
 
-    return { success: true, data: result };
+    return result;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Erreur inconnue";
     return { success: false, error: message };

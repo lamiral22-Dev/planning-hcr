@@ -28,6 +28,7 @@ vi.mock("@/lib/prisma", () => ({
       create: vi.fn(),
     },
     leaveRequest: { findMany: vi.fn().mockResolvedValue([]) },
+    $executeRaw: vi.fn(),
     $queryRaw: vi.fn(),
     $transaction: vi.fn(async (cb: (tx: any) => Promise<any>) => {
       return cb(prisma);
@@ -124,9 +125,11 @@ describe("swap-actions.ts", () => {
 
       vi.mocked(prisma.shiftSwap.findUnique).mockResolvedValue({
         id: "swap-1",
+        shiftId: "shift-1",
+        requesterId: "sal-1",
         targetUserId: "sal-2",
         status: "EN_ATTENTE_EQUIPIER",
-        shift: { id: "shift-1" },
+        shift: { id: "shift-1", userId: "sal-1", status: "PUBLIE", startTime: new Date(), endTime: new Date() },
       } as any);
 
       vi.mocked(prisma.shiftSwap.update as any).mockImplementation(async ({ data }: any) => {
@@ -166,10 +169,14 @@ describe("swap-actions.ts", () => {
 
       vi.mocked(prisma.shiftSwap.findUnique).mockResolvedValue({
         id: "swap-1",
+        shiftId: "shift-1",
+        requesterId: "sal-1",
         targetUserId: "sal-2",
         status: "EN_ATTENTE_EQUIPIER",
         shift: {
           id: "shift-1",
+          userId: "sal-1",
+          status: "PUBLIE",
           startTime: shiftStart,
           endTime: shiftEnd,
         },
@@ -209,10 +216,14 @@ describe("swap-actions.ts", () => {
 
       vi.mocked(prisma.shiftSwap.findUnique).mockResolvedValue({
         id: "swap-1",
+        shiftId: "shift-1",
+        requesterId: "sal-1",
         targetUserId: "sal-2",
         status: "EN_ATTENTE_EQUIPIER",
         shift: {
           id: "shift-1",
+          userId: "sal-1",
+          status: "PUBLIE",
           startTime: shiftStart,
           endTime: shiftEnd,
         },
@@ -232,6 +243,9 @@ describe("swap-actions.ts", () => {
       if (res.success) {
         expect(res.data.status).toBe("EN_ATTENTE_MANAGER");
       }
+      expect(vi.mocked(prisma.$executeRaw).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(prisma.shiftSwap.findUnique).mock.invocationCallOrder[1]
+      );
       expect(prisma.auditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -260,6 +274,8 @@ describe("swap-actions.ts", () => {
         userId: "sal-1",
         acknowledgedAt: new Date("2025-06-01T10:00:00Z"),
         planningVersion: 1,
+        status: "PUBLIE",
+        leaveAction: null,
         startTime: shiftStart,
         endTime: shiftEnd,
       };
@@ -293,6 +309,9 @@ describe("swap-actions.ts", () => {
         expect(res.data.shift.acknowledgedAt).toBeNull();
         expect(res.data.swap.status).toBe("VALIDE");
       }
+      expect(vi.mocked(prisma.$executeRaw).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(prisma.shiftSwap.findUnique).mock.invocationCallOrder[1]
+      );
 
       expect(prisma.auditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({
