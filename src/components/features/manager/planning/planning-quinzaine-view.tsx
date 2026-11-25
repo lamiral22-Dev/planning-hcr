@@ -17,7 +17,7 @@ interface PlanningQuinzaineViewProps {
   isLoading?: boolean;
   initialTemplates?: MasterTemplateItem[];
   readOnly?: boolean;
-  leaves?: { id: string; userId: string; type: string; status: string; startDate: string; endDate: string }[];
+  leaves?: { id: string; userId: string; type: string; status: string; startDate: string; endDate: string; dayPeriod?: string }[];
 }
 
 export function PlanningQuinzaineView({

@@ -11,6 +11,36 @@ describe("congés et jours civils de Paris", () => {
     expect(countLeaveDays("2026-04-06", "2026-04-06")).toBe(0);
   });
 
+  it.each(["MATIN", "APRES_MIDI"])("décompte une demi-journée %s uniquement un jour ouvrable non férié", (period) => {
+    expect(countLeaveDays("2026-05-04", "2026-05-04", period)).toBe(0.5);
+    expect(countLeaveDays("2026-05-03", "2026-05-03", period)).toBe(0);
+    expect(countLeaveDays("2026-05-01", "2026-05-01", period)).toBe(0);
+    const request = { startDate: "2026-05-04", endDate: "2026-05-04", dayPeriod: period };
+    const hire = new Date("2026-05-02T10:00:00Z");
+    expect(canReserveLeave(hire, 0.5, [], request)).toBe(true);
+    expect(canReserveLeave(hire, 0.4, [], request)).toBe(false);
+    expect(remainingLeaveDays(hire, 0.5, [request], "2026-05-05")).toBe(0);
+    expect(canReserveLeave(hire, 0.5, [request], { ...request, dayPeriod: period === "MATIN" ? "APRES_MIDI" : "MATIN" })).toBe(false);
+  });
+
+  it.each([
+    ["MATIN", "2026-03-28T23:00:00.000Z", "2026-03-29T12:00:00.000Z"],
+    ["APRES_MIDI", "2026-03-29T12:00:00.000Z", "2026-03-29T22:00:00.000Z"],
+  ])("délimite %s à 14 h heure de Paris même au changement d'heure", (period, start, end) => {
+    const interval = leaveInterval({ startDate: leaveDate("2026-03-29"), endDate: leaveDate("2026-03-29"), dayPeriod: period });
+    expect(interval.start.toISOString()).toBe(start);
+    expect(interval.end.toISOString()).toBe(end);
+  });
+
+  it("ignore les shifts sur l'autre demi-journée et détecte les chevauchements à 14 h", async () => {
+    const leave = { startDate: leaveDate("2026-11-24"), endDate: leaveDate("2026-11-24"), dayPeriod: "MATIN" };
+    const tx = { leaveRequest: { findMany: vi.fn().mockResolvedValue([leave]) } };
+    const evening = shiftDatesForDay("2026-11-24", "14:00", "18:00");
+    const overlapping = shiftDatesForDay("2026-11-24", "13:59", "18:00");
+    expect(await conflictingLeaves(tx as any, "e", evening.startTime, evening.endTime)).toEqual([]);
+    expect(await conflictingLeaves(tx as any, "e", overlapping.startTime, overlapping.endTime)).toEqual([leave]);
+  });
+
   it("crédite 2,5 jours chaque premier du mois après l'embauche", () => {
     expect(accruedLeaveDays(new Date("2026-01-16T00:00:00Z"), new Date("2026-01-30T00:00:00Z"))).toBe(0);
     expect(accruedLeaveDays(new Date("2026-01-16T00:00:00Z"), new Date("2026-01-31T00:00:00Z"))).toBe(0);

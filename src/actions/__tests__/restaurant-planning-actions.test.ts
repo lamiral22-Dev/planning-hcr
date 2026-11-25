@@ -106,7 +106,7 @@ describe("restaurant-planning-actions", () => {
 
   it("bloque une affectation sur congé sans arbitrage explicite", async () => {
       const date = format(addDays(toAppTime(new Date()), 2), "yyyy-MM-dd");
-      vi.mocked(prisma.leaveRequest.findMany).mockResolvedValueOnce([{ id: "leave-1" }] as any);
+      vi.mocked(prisma.leaveRequest.findMany).mockResolvedValueOnce([{ id: "leave-1", startDate: new Date(`${date}T00:00:00Z`), endDate: new Date(`${date}T00:00:00Z`), dayPeriod: "JOURNEE_COMPLETE" }] as any);
       expect(await assignRestaurantSlot({ slotId: "slot-1", userId: "employee-1", date })).toMatchObject({
         success: false, code: "LEAVE_CONFLICT",
       });
@@ -115,7 +115,7 @@ describe("restaurant-planning-actions", () => {
 
   it("maintient le congé lors d'une affectation tardive jusqu'à l'accord", async () => {
       const date = format(addDays(toAppTime(new Date()), 2), "yyyy-MM-dd");
-      vi.mocked(prisma.leaveRequest.findMany).mockResolvedValueOnce([{ id: "leave-1" }] as any);
+      vi.mocked(prisma.leaveRequest.findMany).mockResolvedValueOnce([{ id: "leave-1", startDate: new Date(`${date}T00:00:00Z`), endDate: new Date(`${date}T00:00:00Z`), dayPeriod: "JOURNEE_COMPLETE" }] as any);
       vi.mocked(prisma.shift.findFirst).mockResolvedValue(null);
       vi.mocked(prisma.shift.findMany).mockResolvedValue([]);
       vi.mocked(prisma.shift.create).mockResolvedValue({ id: "shift-1" } as any);

@@ -10,7 +10,7 @@ interface ArbitrageViewProps {
   discrepancies: DiscrepancyItem[];
   swaps: PendingSwapItem[];
   isLoading?: boolean;
-  leaves?: { id: string; type: string; employee: string; startDate: string; endDate: string; reason: string | null }[];
+  leaves?: { id: string; type: string; dayPeriod?: string; employee: string; startDate: string; endDate: string; reason: string | null }[];
 }
 
 export function ArbitrageView({

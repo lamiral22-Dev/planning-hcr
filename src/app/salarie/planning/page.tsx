@@ -52,6 +52,7 @@ export default async function SalariePlanningPage() {
 
   return (
     <SalariePlanningView
+      employeeName={`${user.firstName} ${user.lastName}`}
       shifts={shifts.map((s) => ({
         id: s.id,
         startTime: s.startTime,
@@ -64,7 +65,7 @@ export default async function SalariePlanningPage() {
         leaveAction: s.leaveAction,
       }))}
       leaves={leaves.map((leave) => ({
-        id: leave.id, type: leave.type, status: leave.status,
+        id: leave.id, type: leave.type, status: leave.status, dayPeriod: leave.dayPeriod,
         startDate: leave.startDate.toISOString().slice(0, 10),
         endDate: leave.endDate.toISOString().slice(0, 10),
       }))}

@@ -17,7 +17,7 @@ export default async function ManagerEmployeePlanningPage() {
     }),
     prisma.leaveRequest.findMany({
       where: { status: { in: ["EN_ATTENTE", "APPROUVE"] } },
-      select: { id: true, userId: true, type: true, status: true, startDate: true, endDate: true },
+      select: { id: true, userId: true, type: true, status: true, startDate: true, endDate: true, dayPeriod: true },
       orderBy: { startDate: "asc" },
     }),
   ]);
