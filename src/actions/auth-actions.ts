@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { isDemoModeEnabled } from "@/lib/demo-mode";
 import { verifyPassword } from "@/lib/password";
 import { CredentialsSchema, EmailSchema } from "@/schemas/validations";
+import { signSessionUserId } from "@/lib/auth";
 
 export async function quickLoginByEmail(email: string) {
   if (!isDemoModeEnabled()) {
@@ -22,7 +23,7 @@ export async function quickLoginByEmail(email: string) {
   }
 
   const cookieStore = await cookies();
-  cookieStore.set("session_user_id", user.id, {
+  cookieStore.set("session_user_id", signSessionUserId(user.id), {
     path: "/",
     httpOnly: true,
     sameSite: "lax",
@@ -76,7 +77,7 @@ export async function loginWithCredentials(
   }
 
   const cookieStore = await cookies();
-  cookieStore.set("session_user_id", user.id, {
+  cookieStore.set("session_user_id", signSessionUserId(user.id), {
     path: "/",
     httpOnly: true,
     sameSite: "lax",
